@@ -229,12 +229,12 @@ export interface AuditLog {
   id: string;
   timestamp: string;
   actor: string;
-  page: string; // 'Produk & HPP', 'Bahan & Restock', 'Keuangan', 'Pengaturan', 'Promo', 'Auth'
+  page?: string; // 'Produk & HPP', 'Bahan & Restock', 'Keuangan', 'Pengaturan', 'Promo', 'Auth'
   action: string;
   changesBefore?: string;
   changesAfter?: string;
   details: string;
-  ipAddress: string;
+  ipAddress?: string;
 }
 
 export interface BusinessParameters {

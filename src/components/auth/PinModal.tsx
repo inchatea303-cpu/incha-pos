@@ -113,11 +113,9 @@ export const PinModal: React.FC<PinModalProps> = ({
                   setPin(emp.pin);
                   verifyPin(emp.pin);
                 }}
-                className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
-                  emp.role === 'pemilik'
-                    ? 'bg-[#1B2A5C]/10 text-[#1B2A5C] border-[#1B2A5C]/30 hover:bg-[#1B2A5C]/20'
-                    : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
-                } ${!emp.isActive ? 'line-through opacity-50' : ''}`}
+                className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200 ${
+                  !emp.isActive ? 'line-through opacity-50' : ''
+                }`}
               >
                 {emp.name} ({emp.pin})
               </button>

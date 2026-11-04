@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import {
   UserRole,
+  OwnerAccount,
   Employee,
   Ingredient,
   IngredientPriceHistory,
@@ -15,6 +16,7 @@ import {
   SyncStatus,
 } from '../types';
 import {
+  INITIAL_OWNER_ACCOUNTS,
   INITIAL_EMPLOYEES,
   INITIAL_PACKAGING,
   INITIAL_BUSINESS_PARAMS,
@@ -22,6 +24,7 @@ import {
   INITIAL_PRODUCTS,
   INITIAL_AUDIT_LOGS,
 } from '../database/seedData';
+import { authService, SESSION_INACTIVITY_LIMIT_MS } from '../utils/authService';
 import {
   calculatePortionCost,
   calculateHPP,
@@ -55,6 +58,10 @@ interface StoreContextType {
   pendingOfflineCount: number;
   clearAlert: () => void;
   // Auth & Roles
+  authenticatedOwner: OwnerAccount | null;
+  sessionExpiredMessage: string | null;
+  ownerLogin: (owner: OwnerAccount) => void;
+  ownerLogout: () => void;
   loginWithPin: (pin: string) => { success: boolean; message: string; role?: UserRole };
   logout: () => void;
   switchRole: (newRole: UserRole, pin?: string) => boolean;
@@ -105,6 +112,7 @@ const StoreContext = createContext<StoreContextType | undefined>(undefined);
 const STORAGE_KEYS = {
   ROLE: 'incha_user_role',
   CURRENT_EMP: 'incha_current_emp',
+  OWNER_AUTH: 'incha_authenticated_owner',
   EMPLOYEES: 'incha_employees',
   INGREDIENTS: 'incha_ingredients',
   PRODUCTS: 'incha_products',
@@ -117,6 +125,22 @@ const STORAGE_KEYS = {
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Load state from localStorage or seed
+  const [sessionExpiredMessage, setSessionExpiredMessage] = useState<string | null>(null);
+
+  const [authenticatedOwner, setAuthenticatedOwner] = useState<OwnerAccount | null>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.OWNER_AUTH);
+    if (!saved) return INITIAL_OWNER_ACCOUNTS[0]; // Default logged-in owner for seamless start
+    try {
+      const parsed: OwnerAccount = JSON.parse(saved);
+      const session = authService.checkSession(parsed.lastActiveAt);
+      if (!session.isValid) {
+        return null;
+      }
+      return parsed;
+    } catch {
+      return INITIAL_OWNER_ACCOUNTS[0];
+    }
+  });
   const [role, setRole] = useState<UserRole>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.ROLE);
     return (saved as UserRole) || 'pemilik';
@@ -222,13 +246,41 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const clearAlert = () => setActiveAlert(null);
 
-  const addAuditLog = (action: string, details: string, actor?: string) => {
+  const ownerLogin = (owner: OwnerAccount) => {
+    const updated = { ...owner, lastActiveAt: new Date().toISOString() };
+    setAuthenticatedOwner(updated);
+    setSessionExpiredMessage(null);
+    localStorage.setItem(STORAGE_KEYS.OWNER_AUTH, JSON.stringify(updated));
+    setRole('pemilik');
+    addAuditLog('LOGIN_PEMILIK', `Pemilik ${owner.name} (${owner.email}) masuk ke sistem.`, owner.name);
+  };
+
+  const ownerLogout = () => {
+    if (authenticatedOwner) {
+      addAuditLog('LOGOUT_PEMILIK', `Pemilik ${authenticatedOwner.name} keluar dari sistem.`, authenticatedOwner.name);
+    }
+    setAuthenticatedOwner(null);
+    localStorage.removeItem(STORAGE_KEYS.OWNER_AUTH);
+  };
+
+  const addAuditLog = (
+    action: string,
+    details: string,
+    actor?: string,
+    page?: string,
+    changesBefore?: string,
+    changesAfter?: string
+  ) => {
     const newLog: AuditLog = {
       id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       timestamp: new Date().toISOString(),
-      actor: actor || currentEmployee?.name || (role === 'pemilik' ? 'Pemilik' : 'Karyawan'),
+      actor: actor || authenticatedOwner?.name || (role === 'pemilik' ? 'Pemilik' : 'Karyawan'),
+      page: page || 'Sistem',
       action,
       details,
+      changesBefore,
+      changesAfter,
+      ipAddress: '127.0.0.1 (Lokal)',
     };
     setAuditLogs((prev) => [newLog, ...prev]);
   };
@@ -258,13 +310,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const switchRole = (newRole: UserRole, pin?: string): boolean => {
     if (newRole === 'pemilik') {
-      if (!pin) return false;
-      const ownerEmp = employees.find((e) => e.role === 'pemilik' && e.pin === pin);
-      if (!ownerEmp) return false;
-      setCurrentEmployee(ownerEmp);
-      setRole('pemilik');
-      addAuditLog('SWITCH_ROLE', `Beralih ke Portal Pemilik oleh ${ownerEmp.name}`);
-      return true;
+      if (authenticatedOwner) {
+        setRole('pemilik');
+        addAuditLog('SWITCH_ROLE', `Beralih ke Portal Pemilik oleh ${authenticatedOwner.name}`);
+        return true;
+      }
+      return false;
     } else {
       const activeKasir = employees.find((e) => e.role === 'karyawan' && e.isActive);
       if (activeKasir) setCurrentEmployee(activeKasir);
@@ -660,8 +711,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         id: `reset-${Date.now()}`,
         timestamp: new Date().toISOString(),
         actor: 'Pemilik',
+        page: 'Pengaturan',
         action: 'RESET_DATA',
         details: 'Data aplikasi di-reset ke nilai default awal (seed).',
+        ipAddress: '127.0.0.1 (Lokal)',
       },
     ]);
     setActiveAlert('Semua data berhasil di-reset ke data default awal kemitraan INCHA.');
@@ -684,6 +737,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         isOnline,
         pendingOfflineCount,
         clearAlert,
+        authenticatedOwner,
+        sessionExpiredMessage,
+        ownerLogin,
+        ownerLogout,
         loginWithPin,
         logout,
         switchRole,

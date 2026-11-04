@@ -35,14 +35,8 @@ export const EmployeeManagementCard: React.FC = () => {
               <div>
                 <div className="font-bold text-sm text-[#1F2937]">{emp.name}</div>
                 <div className="flex items-center gap-1.5 mt-1">
-                  <span
-                    className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
-                      emp.role === 'pemilik'
-                        ? 'bg-[#1B2A5C] text-white'
-                        : 'bg-[#1B2A5C]/10 text-[#1B2A5C]'
-                    }`}
-                  >
-                    {emp.role === 'pemilik' ? 'Pemilik Outlet' : 'Kasir / Karyawan'}
+                  <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-[#1B2A5C]/10 text-[#1B2A5C]">
+                    Kasir / Karyawan
                   </span>
                   <span
                     className={`text-[10px] font-bold px-2 py-0.5 rounded ${
@@ -60,35 +54,33 @@ export const EmployeeManagementCard: React.FC = () => {
             <div className="mt-3 pt-3 border-t border-[#E2DED6] flex items-center justify-between text-xs">
               <div className="flex items-center gap-1 text-[#6B7280]">
                 <Key className="w-3.5 h-3.5 text-[#1B2A5C]" />
-                <span>PIN:</span>
+                <span>PIN Akses:</span>
                 <span className="font-mono font-bold text-[#1B2A5C] tabular-nums">
-                  {emp.pin}
+                  ••••
                 </span>
               </div>
 
-              {emp.role !== 'pemilik' && (
-                <button
-                  type="button"
-                  onClick={() => toggleEmployeeStatus(emp.id, !emp.isActive)}
-                  className={`px-3 py-1 rounded text-xs font-semibold transition-colors flex items-center gap-1 ${
-                    emp.isActive
-                      ? 'bg-[#FCE8E9] text-[#D7262E] hover:bg-red-200'
-                      : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                  }`}
-                >
-                  {emp.isActive ? (
-                    <>
-                      <UserX className="w-3.5 h-3.5" />
-                      <span>Nonaktifkan</span>
-                    </>
-                  ) : (
-                    <>
-                      <UserCheck className="w-3.5 h-3.5" />
-                      <span>Aktifkan</span>
-                    </>
-                  )}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => toggleEmployeeStatus(emp.id, !emp.isActive)}
+                className={`px-3 py-1 rounded text-xs font-semibold transition-colors flex items-center gap-1 ${
+                  emp.isActive
+                    ? 'bg-[#FCE8E9] text-[#D7262E] hover:bg-red-200'
+                    : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                }`}
+              >
+                {emp.isActive ? (
+                  <>
+                    <UserX className="w-3.5 h-3.5" />
+                    <span>Nonaktifkan</span>
+                  </>
+                ) : (
+                  <>
+                    <UserCheck className="w-3.5 h-3.5" />
+                    <span>Aktifkan</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         ))}

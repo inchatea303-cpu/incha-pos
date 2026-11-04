@@ -48,7 +48,7 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="flex items-center gap-2">
                 <span className="font-bold text-lg tracking-wide text-white">INCHA</span>
                 <span className="text-xs px-2 py-0.5 rounded bg-[#243775] text-[#FAF8F4] font-medium border border-[#3B4E8C]">
-                  Karang Tengah, Ciledug
+                  Karang Tengah, Tangerang
                 </span>
               </div>
               <p className="text-xs text-gray-300">Indonesian Artisan Milk Tea</p>

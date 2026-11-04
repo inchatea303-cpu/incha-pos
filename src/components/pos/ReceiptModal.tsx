@@ -90,11 +90,8 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             <div className="text-center font-bold text-sm mb-1 text-black">
               INCHA MILK TEA
             </div>
-            <div className="text-center text-[10px] text-gray-500 mb-1">
-              Karang Tengah, Ciledug
-            </div>
             <div className="text-center text-[10px] text-gray-500 mb-2">
-              Tangerang, Banten
+              Karang Tengah, Tangerang
             </div>
             <div className="border-b border-dashed border-gray-400 my-1.5" />
 

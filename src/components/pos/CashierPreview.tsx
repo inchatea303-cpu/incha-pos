@@ -40,7 +40,7 @@ export const CashierPreview: React.FC = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="font-bold text-base tracking-wide">INCHA KASIR</h1>
-            <p className="text-xs text-gray-200">Karang Tengah • Ciledug</p>
+            <p className="text-xs text-gray-200">Karang Tengah • Tangerang</p>
           </div>
           <div className="text-right">
             <div className="text-xs font-semibold text-white">

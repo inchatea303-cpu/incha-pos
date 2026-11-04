@@ -223,8 +223,7 @@ export function generateReceiptText(transaction: SalesTransaction): string {
   const lines: string[] = [];
 
   lines.push(center('INCHA MILK TEA'));
-  lines.push(center('Karang Tengah, Ciledug'));
-  lines.push(center('Tangerang, Banten'));
+  lines.push(center('Karang Tengah, Tangerang'));
   lines.push(doubleDivider);
   lines.push(pad(`No: ${transaction.invoiceNumber}`, ''));
   lines.push(pad(`Wkt: ${formatDateWIB(transaction.timestamp)}`, ''));

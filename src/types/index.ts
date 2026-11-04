@@ -1,10 +1,22 @@
 export type UserRole = 'pemilik' | 'karyawan';
 
+export interface OwnerAccount {
+  id: string;
+  email: string;
+  name: string;
+  role: 'pemilik';
+  passwordHash: string;
+  failedAttempts: number;
+  lockedUntil: string | null; // ISO string if locked for 15 minutes
+  lastActiveAt: string; // ISO string for 12 hours inactivity check
+  createdAt: string;
+}
+
 export interface Employee {
   id: string;
   name: string;
   pin: string;
-  role: UserRole;
+  role: 'karyawan';
   isActive: boolean;
   createdAt: string;
 }
@@ -217,8 +229,12 @@ export interface AuditLog {
   id: string;
   timestamp: string;
   actor: string;
+  page: string; // 'Produk & HPP', 'Bahan & Restock', 'Keuangan', 'Pengaturan', 'Promo', 'Auth'
   action: string;
+  changesBefore?: string;
+  changesAfter?: string;
   details: string;
+  ipAddress: string;
 }
 
 export interface BusinessParameters {

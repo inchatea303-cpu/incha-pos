@@ -4,18 +4,36 @@ import {
   PackagingCosts,
   BusinessParameters,
   Employee,
+  OwnerAccount,
   AuditLog,
 } from '../types';
 
-export const INITIAL_EMPLOYEES: Employee[] = [
+export const INITIAL_OWNER_ACCOUNTS: OwnerAccount[] = [
   {
-    id: 'emp-owner',
-    name: 'Pemilik INCHA',
-    pin: '8888',
+    id: 'owner-1',
+    email: 'owner1@incha.id',
+    name: 'Hendra Kusuma',
     role: 'pemilik',
-    isActive: true,
+    passwordHash: 'Incha2026!',
+    failedAttempts: 0,
+    lockedUntil: null,
+    lastActiveAt: '2026-11-04T08:00:00.000Z',
     createdAt: '2026-10-01T00:00:00.000Z',
   },
+  {
+    id: 'owner-2',
+    email: 'owner2@incha.id',
+    name: 'Cindy Wulandari',
+    role: 'pemilik',
+    passwordHash: 'Incha2026!',
+    failedAttempts: 0,
+    lockedUntil: null,
+    lastActiveAt: '2026-11-04T08:00:00.000Z',
+    createdAt: '2026-10-01T00:00:00.000Z',
+  },
+];
+
+export const INITIAL_EMPLOYEES: Employee[] = [
   {
     id: 'emp-kasir-1',
     name: 'Siti Rahma (Kasir 1)',
@@ -450,14 +468,18 @@ export const INITIAL_AUDIT_LOGS: AuditLog[] = [
     id: 'log-1',
     timestamp: '2026-10-25T08:00:00.000Z',
     actor: 'Sistem',
+    page: 'Pengaturan',
     action: 'INISIALISASI_SISTEM',
     details: 'Inisialisasi data awal master bahan, menu INCHA, dan konfigurasi HPP outlet Karang Tengah.',
+    ipAddress: '127.0.0.1',
   },
   {
     id: 'log-2',
     timestamp: '2026-10-26T10:15:00.000Z',
-    actor: 'Pemilik INCHA',
+    actor: 'Hendra Kusuma',
+    page: 'Bahan & Restock',
     action: 'VERIFIKASI_DATA',
     details: 'Tandai Osmanthus Base dan Peach Base sebagai terverifikasi. Catat Brownsugar Base belum diverifikasi.',
+    ipAddress: '192.168.1.12',
   },
 ];

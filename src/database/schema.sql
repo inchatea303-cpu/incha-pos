@@ -16,7 +16,35 @@ CREATE TYPE payment_method AS ENUM ('cash', 'qris');
 CREATE TYPE promo_type AS ENUM ('discount_pct', 'discount_nom', 'b1g1', 'bundle');
 CREATE TYPE expense_category AS ENUM ('fixed', 'variable');
 
--- 3. EMPLOYEES & ROLES TABLE
+-- 3. OWNER ACCOUNTS (HANYA DUA AKUN PEMILIK - TIDAK ADA PENDAFTARAN PUBLIK)
+CREATE TABLE public.owner_accounts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(150) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    failed_attempts INT NOT NULL DEFAULT 0,
+    locked_until TIMESTAMPTZ,
+    last_active_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+
+-- Batasi mutlak: Maksimal hanya 2 akun pemilik dalam sistem
+CREATE OR REPLACE FUNCTION trg_limit_owner_accounts()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (SELECT COUNT(*) FROM public.owner_accounts) >= 2 THEN
+        RAISE EXCEPTION 'Maksimal hanya 2 akun pemilik yang diperbolehkan di sistem ini.';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_limit_owners
+BEFORE INSERT ON public.owner_accounts
+FOR EACH ROW
+EXECUTE FUNCTION trg_limit_owner_accounts();
+
+-- 3B. EMPLOYEES & ROLES TABLE (HANYA UNTUK APLIKASI KASIR)
 CREATE TABLE public.employees (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(100) NOT NULL,
@@ -189,13 +217,17 @@ CREATE TABLE public.promo_rules (
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
 );
 
--- 16. AUDIT LOGS (Pencatatan Perubahan Harga, Void, Diskon, Restock)
+-- 16. AUDIT LOGS (Riwayat Perubahan Tanpa Tombol Hapus)
 CREATE TABLE public.audit_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     timestamp TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
     actor VARCHAR(100) NOT NULL,
+    page VARCHAR(50) NOT NULL DEFAULT 'Dashboard',
     action VARCHAR(100) NOT NULL,
-    details TEXT NOT NULL
+    changes_before TEXT,
+    changes_after TEXT,
+    details TEXT NOT NULL,
+    ip_address VARCHAR(50) NOT NULL DEFAULT '127.0.0.1'
 );
 
 -- ==============================================================================
@@ -203,6 +235,7 @@ CREATE TABLE public.audit_logs (
 -- ==============================================================================
 
 -- Enable RLS on ALL tables
+ALTER TABLE public.owner_accounts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ingredients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ingredient_costs ENABLE ROW LEVEL SECURITY;
@@ -233,8 +266,15 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 
 -- ------------------------------------------------------------------------------
--- A. KEBIJAKAN TABEL KEUANGAN (HANYA PEMILIK BISA MELIHAT & MENGUBAH)
+-- A. KEBIJAKAN TABEL KEUANGAN & PEMILIK (HANYA PEMILIK BISA MELIHAT & MENGUBAH)
 -- ------------------------------------------------------------------------------
+
+-- 0. OWNER ACCOUNTS (HANYA PEMILIK, TIDAK ADA ENDPOINT PENDAFTARAN)
+CREATE POLICY "pemilik_select_owner_accounts" ON public.owner_accounts
+    FOR SELECT USING (current_user_role() = 'pemilik');
+CREATE POLICY "pemilik_update_owner_accounts" ON public.owner_accounts
+    FOR UPDATE USING (current_user_role() = 'pemilik');
+-- Tidak ada INSERT POLICY untuk public/karyawan (Pendaftaran ditolak di level RLS)
 
 -- 1. INGREDIENT COSTS (HARGA BELI BAHAN): HANYA PEMILIK
 CREATE POLICY "pemilik_full_access_ingredient_costs" ON public.ingredient_costs

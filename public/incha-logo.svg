@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="128" fill="#1B2A5C"/>
+  <circle cx="256" cy="256" r="180" fill="#243775"/>
+  <path d="M190 170 h132 l-16 190 c-2 24 -22 42 -46 42 h-8 c-24 0 -44 -18 -46 -42 z" fill="#FAF8F4"/>
+  <path d="M200 230 h112 l-8 100 c-1 16 -15 28 -31 28 h-34 c-16 0 -30 -12 -31 -28 z" fill="#D7262E" opacity="0.9"/>
+  <path d="M170 170 h172 v20 h-172 z" rx="10" fill="#FAF8F4"/>
+  <rect x="290" y="110" width="16" height="80" rx="8" transform="rotate(20 290 110)" fill="#FAF8F4"/>
+  <text x="256" y="445" font-family="'Plus Jakarta Sans', Inter, sans-serif" font-size="46" font-weight="900" fill="#FAF8F4" text-anchor="middle" letter-spacing="4">INCHA</text>
+</svg>

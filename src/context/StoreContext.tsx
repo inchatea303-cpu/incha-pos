@@ -129,7 +129,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const [authenticatedOwner, setAuthenticatedOwner] = useState<OwnerAccount | null>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.OWNER_AUTH);
-    if (!saved) return INITIAL_OWNER_ACCOUNTS[0]; // Default logged-in owner for seamless start
+    if (!saved) return null;
     try {
       const parsed: OwnerAccount = JSON.parse(saved);
       const session = authService.checkSession(parsed.lastActiveAt);
@@ -138,12 +138,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       return parsed;
     } catch {
-      return INITIAL_OWNER_ACCOUNTS[0];
+      return null;
     }
   });
   const [role, setRole] = useState<UserRole>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.ROLE);
-    return (saved as UserRole) || 'pemilik';
+    return (saved as UserRole) || 'karyawan';
   });
 
   const [employees, setEmployees] = useState<Employee[]>(() => {
@@ -153,7 +153,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const [currentEmployee, setCurrentEmployee] = useState<Employee | null>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.CURRENT_EMP);
-    return saved ? JSON.parse(saved) : INITIAL_EMPLOYEES[0];
+    return saved ? JSON.parse(saved) : null;
   });
 
   const [ingredients, setIngredients] = useState<Ingredient[]>(() => {
@@ -294,17 +294,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return { success: false, message: 'Akun dinonaktifkan oleh Pemilik. Hubungi pemilik untuk akses.' };
     }
     setCurrentEmployee(emp);
+    localStorage.setItem(STORAGE_KEYS.CURRENT_EMP, JSON.stringify(emp));
     setRole(emp.role);
-    addAuditLog('LOGIN', `Pengguna ${emp.name} login dengan PIN role ${emp.role}.`, emp.name);
+    addAuditLog('LOGIN_KASIR', `Kasir ${emp.name} berhasil masuk dengan PIN.`, emp.name);
     return { success: true, message: `Selamat datang, ${emp.name}`, role: emp.role };
   };
 
   const logout = () => {
     if (currentEmployee) {
-      addAuditLog('LOGOUT', `Pengguna ${currentEmployee.name} logout.`, currentEmployee.name);
+      addAuditLog('LOGOUT_KASIR', `Kasir ${currentEmployee.name} keluar.`, currentEmployee.name);
     }
-    const defaultKasir = employees.find((e) => e.role === 'karyawan' && e.isActive) || null;
-    setCurrentEmployee(defaultKasir);
+    setCurrentEmployee(null);
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_EMP);
     setRole('karyawan');
   };
 

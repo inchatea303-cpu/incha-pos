@@ -6,11 +6,13 @@ import { OwnerAccount } from '../../types';
 interface LoginViewProps {
   onLoginSuccess: (owner: OwnerAccount) => void;
   sessionExpiredMessage?: string | null;
+  onSwitchToCashier?: () => void;
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({
   onLoginSuccess,
   sessionExpiredMessage,
+  onSwitchToCashier,
 }) => {
   const [email, setEmail] = useState('owner1@incha.id');
   const [password, setPassword] = useState('Incha2026!');
@@ -166,6 +168,19 @@ export const LoginView: React.FC<LoginViewProps> = ({
             <span className="font-mono text-[#1B2A5C]">Incha2026!</span>
           </div>
         </div>
+
+        {/* Akses ke Aplikasi Kasir Karyawan */}
+        {onSwitchToCashier && (
+          <div className="mt-4 pt-3 border-t border-[#E6E9F2] text-center">
+            <button
+              type="button"
+              onClick={onSwitchToCashier}
+              className="text-xs font-semibold text-[#1B2A5C] hover:text-[#D7262E] transition-colors"
+            >
+              Beralih ke Aplikasi Kasir (Login PIN Karyawan) →
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Modal Lupa Password */}

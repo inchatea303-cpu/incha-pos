@@ -23,6 +23,7 @@ import {
   Layers,
   ArrowRight,
   ShieldCheck,
+  Store,
 } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
 import {
@@ -192,8 +193,8 @@ export const CashierMain: React.FC = () => {
     setIsConfirmOpen(false);
 
     const saleRecord = await recordSale({
-      cashierId: currentEmployee?.id || 'emp-kasir',
-      cashierName: currentEmployee?.name || 'Kasir',
+      cashierId: 'kasir-outlet',
+      cashierName: 'Kasir Toko',
       channel,
       paymentMethod,
       items: cart,
@@ -253,7 +254,7 @@ export const CashierMain: React.FC = () => {
   });
 
   return (
-    <div className="max-w-xl mx-auto bg-white rounded-3xl shadow-2xl border-2 border-[#1B2A5C] overflow-hidden my-2 flex flex-col min-h-[90vh]">
+    <div className="w-full max-w-5xl mx-auto bg-white rounded-2xl shadow-lg border border-[#E6E4DD] overflow-hidden my-2 flex flex-col min-h-[85vh]">
       {/* 1. Android Status Bar & Sync Indicator */}
       <div className="bg-[#1B2A5C] text-white px-5 py-2.5 flex items-center justify-between text-xs select-none">
         <div className="flex items-center gap-2">
@@ -292,10 +293,17 @@ export const CashierMain: React.FC = () => {
 
       {/* 2. Cashier Header Info */}
       <div className="bg-[#131E42] text-white px-4 py-3 flex items-center justify-between border-b border-[#243775]">
-        <div>
-          <div className="text-xs text-gray-300">Petugas Kasir:</div>
-          <div className="font-bold text-sm text-white">
-            {currentEmployee ? currentEmployee.name : 'Kasir Shift'}
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-white">
+            <Store className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="font-bold text-sm text-white leading-tight">
+              Kasir Toko (POS)
+            </div>
+            <div className="text-[11px] text-gray-300">
+              INCHA Karang Tengah, Tangerang
+            </div>
           </div>
         </div>
 
@@ -795,7 +803,7 @@ export const CashierMain: React.FC = () => {
         totalNet={totalNet}
         cashReceived={paymentMethod === 'cash' ? cashNum : totalNet}
         cashChange={paymentMethod === 'cash' ? cashChange : 0}
-        cashierName={currentEmployee?.name || 'Kasir'}
+        cashierName="Kasir Toko"
       />
 
       {/* MODAL: CETAK STRUK SUKSES */}

@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useStore } from './context/StoreContext';
 import { Sidebar, OwnerNavigationPage } from './components/owner/Sidebar';
-import { LoginView } from './components/owner/LoginView';
+import { UnifiedLoginView } from './components/auth/UnifiedLoginView';
 import { DashboardView } from './components/owner/DashboardView';
 import { ProductMaster } from './components/owner/ProductMaster';
 import { IngredientMaster } from './components/owner/IngredientMaster';
@@ -9,7 +9,6 @@ import { PackagingConfigCard } from './components/owner/PackagingConfigCard';
 import { EmployeeManagementCard } from './components/owner/EmployeeManagementCard';
 import { AuditLogView } from './components/owner/AuditLogView';
 import { CashierMain } from './components/pos/CashierMain';
-import { CashierLoginView } from './components/pos/CashierLoginView';
 import { AlertBanner } from './components/common/AlertBanner';
 import {
   ArrowLeft,
@@ -17,113 +16,84 @@ import {
   ShieldCheck,
   Lock,
   LogOut,
-  User,
   Store,
 } from 'lucide-react';
 
 export const AppContent: React.FC = () => {
   const {
     authenticatedOwner,
-    currentEmployee,
+    isCashierAuthenticated,
     sessionExpiredMessage,
     ownerLogin,
     ownerLogout,
-    logout: cashierLogout,
+    loginCashier,
+    logoutCashier,
     activeAlert,
     clearAlert,
-    role,
   } = useStore();
 
-  // Mode Aplikasi: 'owner' (Portal Pemilik) atau 'cashier' (Kasir Outlet)
-  const [appMode, setAppMode] = useState<'owner' | 'cashier'>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('app') === 'kasir') return 'cashier';
-      if (params.get('app') === 'pemilik') return 'owner';
-      const saved = localStorage.getItem('incha_app_mode');
-      if (saved === 'cashier') return 'cashier';
-    }
-    return 'owner';
-  });
-
   const [currentPage, setCurrentPage] = useState<OwnerNavigationPage>('dashboard');
-
-  const switchAppMode = (mode: 'owner' | 'cashier') => {
-    setAppMode(mode);
-    localStorage.setItem('incha_app_mode', mode);
-  };
+  const [isOwnerTestingCashier, setIsOwnerTestingCashier] = useState(false);
 
   // =========================================================================
-  // JIKA DALAM MODE APLIKASI KASIR KARYAWAN
+  // 1. JIKA BELUM ADA YANG LOGIN (Wajib Login Kasir atau Admin)
   // =========================================================================
-  if (appMode === 'cashier') {
-    // 1. Jika kasir belum memasukkan PIN, tampilkan form login PIN kasir
-    if (!currentEmployee) {
-      return (
-        <CashierLoginView
-          onSwitchToOwnerLogin={() => switchAppMode('owner')}
-        />
-      );
-    }
-
-    // 2. Jika kasir sudah login dengan PIN, tampilkan antarmuka kasir
+  if (!authenticatedOwner && !isCashierAuthenticated) {
     return (
-      <div className="min-h-screen bg-[#FAF8F4] flex flex-col font-sans select-none">
-        {/* Header Khusus Kasir */}
-        <header className="bg-[#1B2A5C] text-white px-4 py-3 flex items-center justify-between shadow-sm">
+      <UnifiedLoginView
+        onOwnerLoginSuccess={(owner) => {
+          ownerLogin(owner);
+          setIsOwnerTestingCashier(false);
+        }}
+        onCashierLoginSuccess={() => {
+          loginCashier('1234');
+        }}
+        sessionExpiredMessage={sessionExpiredMessage}
+      />
+    );
+  }
+
+  // =========================================================================
+  // 2. JIKA KASIR TERAUTENTIKASI (Hanya Akses Kasir POS, Tanpa Nama Petugas)
+  // =========================================================================
+  if (isCashierAuthenticated && !authenticatedOwner) {
+    return (
+      <div className="min-h-screen bg-[#F8F6F0] flex flex-col font-sans select-none">
+        {/* Header Bersih & Modern Khusus Kasir */}
+        <header className="bg-[#1B2A5C] text-white px-4 sm:px-6 py-3 flex items-center justify-between shadow-md border-b border-[#243775]">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-white text-[#1B2A5C] font-bold text-sm flex items-center justify-center shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-white text-[#1B2A5C] font-bold text-base flex items-center justify-center shadow-xs shrink-0">
               IN
             </div>
             <div>
-              <div className="text-xs font-semibold text-white tracking-wide leading-tight">
-                INCHA Karang Tengah
+              <div className="text-sm font-bold text-white tracking-tight leading-tight flex items-center gap-2">
+                <span>INCHA Karang Tengah</span>
+                <span className="text-[10px] font-semibold uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                  Kasir POS
+                </span>
               </div>
               <div className="text-[11px] text-gray-300">
-                Kasir: <span className="font-semibold text-white">{currentEmployee.name}</span>
+                Artisan Milk Tea • Tangerang
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Tombol Kunci / Ganti Kasir (kembali ke input PIN) */}
+            {/* Tombol Keluar Kasir */}
             <button
               type="button"
-              onClick={cashierLogout}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-medium text-white transition-colors"
-              title="Kunci layar kasir dan kembali ke input PIN"
+              onClick={logoutCashier}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-[#D7262E] text-xs font-semibold text-white transition-all duration-150"
+              title="Keluar dari akun kasir dan kembali ke menu login"
             >
-              <Lock className="w-3.5 h-3.5" />
-              <span>Kunci Kasir</span>
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Keluar Kasir</span>
             </button>
-
-            {/* Jika dibuka oleh pemilik yang sedang login, ada opsi kembali ke Dashboard */}
-            {authenticatedOwner ? (
-              <button
-                type="button"
-                onClick={() => switchAppMode('owner')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#D7262E] hover:bg-[#B81E25] text-xs font-medium text-white transition-colors"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Dashboard Pemilik</span>
-              </button>
-            ) : (
-              /* Jika kasir biasa, opsi ini menuju ke login email/password pemilik */
-              <button
-                type="button"
-                onClick={() => switchAppMode('owner')}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] text-gray-300 transition-colors"
-                title="Memerlukan email & password pemilik"
-              >
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Akses Pemilik</span>
-              </button>
-            )}
           </div>
         </header>
 
-        {/* Konten POS Kasir */}
-        <main className="flex-1 p-3 sm:p-4 max-w-5xl w-full mx-auto">
+        {/* Konten POS Kasir Utama */}
+        <main className="flex-1 p-3 sm:p-5 max-w-6xl w-full mx-auto">
           <CashierMain />
         </main>
       </div>
@@ -131,38 +101,53 @@ export const AppContent: React.FC = () => {
   }
 
   // =========================================================================
-  // JIKA DALAM MODE PORTAL PEMILIK
+  // 3. JIKA PEMILIK / ADMIN LOGIN
   // =========================================================================
 
-  // 1. Jika belum login sebagai pemilik, tampilkan layar login Pemilik (Email & Password)
-  if (!authenticatedOwner) {
+  // A. Jika Pemilik sedang menguji/membuka Kasir POS
+  if (isOwnerTestingCashier) {
     return (
-      <LoginView
-        onLoginSuccess={(owner) => {
-          ownerLogin(owner);
-          switchAppMode('owner');
-        }}
-        sessionExpiredMessage={sessionExpiredMessage}
-        onSwitchToCashier={() => switchAppMode('cashier')}
-      />
+      <div className="min-h-screen bg-[#F8F6F0] flex flex-col font-sans select-none">
+        <header className="bg-[#1B2A5C] text-white px-4 sm:px-6 py-3 flex items-center justify-between shadow-md border-b border-[#243775]">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsOwnerTestingCashier(false)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold text-white transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Kembali ke Dashboard Pemilik</span>
+            </button>
+            <span className="text-gray-400">|</span>
+            <span className="text-xs font-medium text-gray-200 hidden sm:inline">
+              Mode Uji Kasir (Akses Pemilik)
+            </span>
+          </div>
+
+          <div className="text-xs text-gray-300 font-medium">
+            {authenticatedOwner?.name}
+          </div>
+        </header>
+
+        <main className="flex-1 p-3 sm:p-5 max-w-6xl w-full mx-auto">
+          <CashierMain />
+        </main>
+      </div>
     );
   }
 
-  // 2. Jika pemilik sudah login, tampilkan Portal Pemilik Lengkap
+  // B. Portal Pemilik / Admin Lengkap
   return (
-    <div className="min-h-screen bg-[#FAF8F4] flex font-sans antialiased text-[#1B2A5C]">
+    <div className="min-h-screen bg-[#F8F6F0] flex font-sans antialiased text-[#1B2A5C]">
       {/* 1. Sidebar Kiri (240px di Desktop, 64px di Tablet 768px) */}
       <Sidebar
         currentPage={currentPage}
         onNavigate={setCurrentPage}
-        currentOwner={authenticatedOwner}
-        onLogout={() => {
-          ownerLogout();
-          switchAppMode('owner');
-        }}
+        currentOwner={authenticatedOwner!}
+        onLogout={ownerLogout}
       />
 
-      {/* 2. Area Konten Utama (Maksimal 1120px dengan padding 32px) */}
+      {/* 2. Area Konten Utama (Maksimal 1120px dengan padding lapang) */}
       <div className="flex-1 flex flex-col min-h-screen overflow-y-auto">
         {/* Banner Alert bila ada */}
         {activeAlert && (
@@ -175,7 +160,7 @@ export const AppContent: React.FC = () => {
           {currentPage === 'dashboard' && (
             <DashboardView
               onNavigateToFinance={() => setCurrentPage('finance')}
-              onOpenCashier={() => switchAppMode('cashier')}
+              onOpenCashier={() => setIsOwnerTestingCashier(true)}
             />
           )}
 
@@ -183,15 +168,15 @@ export const AppContent: React.FC = () => {
             <div className="space-y-6">
               <div className="flex items-center justify-between pb-2">
                 <div>
-                  <h1 className="text-2xl font-semibold text-[#1B2A5C] tracking-tight">
+                  <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">
                     Produk & HPP
                   </h1>
-                  <p className="text-xs text-[#5B6478] mt-1">
+                  <p className="text-xs text-[#64748B] mt-1 font-medium">
                     Kelola menu, resep bahan baku, dan target margin keuntungan
                   </p>
                 </div>
               </div>
-              <div className="bg-white rounded-xl border border-[#E6E9F2] p-6">
+              <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-6">
                 <ProductMaster />
               </div>
             </div>
@@ -201,15 +186,15 @@ export const AppContent: React.FC = () => {
             <div className="space-y-6">
               <div className="flex items-center justify-between pb-2">
                 <div>
-                  <h1 className="text-2xl font-semibold text-[#1B2A5C] tracking-tight">
+                  <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">
                     Bahan & Restock
                   </h1>
-                  <p className="text-xs text-[#5B6478] mt-1">
+                  <p className="text-xs text-[#64748B] mt-1 font-medium">
                     Pantau sisa stok bahan baku, batas minimum, dan harga beli
                   </p>
                 </div>
               </div>
-              <div className="bg-white rounded-xl border border-[#E6E9F2] p-6">
+              <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-6">
                 <IngredientMaster onOpenHistory={() => {}} />
               </div>
             </div>
@@ -219,54 +204,54 @@ export const AppContent: React.FC = () => {
             <div className="space-y-6">
               <div className="flex items-center justify-between pb-2">
                 <div>
-                  <h1 className="text-2xl font-semibold text-[#1B2A5C] tracking-tight">
+                  <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">
                     Keuangan
                   </h1>
-                  <p className="text-xs text-[#5B6478] mt-1">
+                  <p className="text-xs text-[#64748B] mt-1 font-medium">
                     Ringkasan penjualan harian, pengeluaran operasional, dan tutup kas
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => switchAppMode('cashier')}
-                  className="h-9 px-3.5 rounded-lg border border-[#E6E9F2] bg-white text-xs font-semibold text-[#1B2A5C] hover:bg-gray-50 flex items-center gap-2 transition-colors"
+                  onClick={() => setIsOwnerTestingCashier(true)}
+                  className="h-9 px-4 rounded-xl border border-[#E2DFD7] bg-white text-xs font-semibold text-[#1B2A5C] hover:bg-[#FAF8F4] flex items-center gap-2 transition-colors shadow-xs"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Buka Kasir</span>
+                  <span>Buka Kasir POS</span>
                 </button>
               </div>
 
               {/* Ringkasan Keuangan Sederhana */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white p-5 rounded-xl border border-[#E6E9F2]">
-                  <div className="text-xs font-semibold uppercase text-[#5B6478] tracking-wider">
+                <div className="bg-white p-5 rounded-2xl border border-[#E6E4DD] shadow-xs">
+                  <div className="text-[11px] font-bold uppercase text-[#64748B] tracking-wider">
                     Total Omzet
                   </div>
-                  <div className="text-2xl font-semibold text-[#1B2A5C] mt-2 font-mono">
+                  <div className="text-2xl font-bold text-[#1B2A5C] mt-2 font-mono">
                     Rp1.150.000
                   </div>
                 </div>
-                <div className="bg-white p-5 rounded-xl border border-[#E6E9F2]">
-                  <div className="text-xs font-semibold uppercase text-[#5B6478] tracking-wider">
+                <div className="bg-white p-5 rounded-2xl border border-[#E6E4DD] shadow-xs">
+                  <div className="text-[11px] font-bold uppercase text-[#64748B] tracking-wider">
                     Total HPP
                   </div>
-                  <div className="text-2xl font-semibold text-[#1B2A5C] mt-2 font-mono">
+                  <div className="text-2xl font-bold text-[#1B2A5C] mt-2 font-mono">
                     Rp483.000
                   </div>
                 </div>
-                <div className="bg-white p-5 rounded-xl border border-[#E6E9F2]">
-                  <div className="text-xs font-semibold uppercase text-[#5B6478] tracking-wider">
+                <div className="bg-white p-5 rounded-2xl border border-[#E6E4DD] shadow-xs">
+                  <div className="text-[11px] font-bold uppercase text-[#64748B] tracking-wider">
                     Pengeluaran
                   </div>
-                  <div className="text-2xl font-semibold text-[#1B2A5C] mt-2 font-mono">
+                  <div className="text-2xl font-bold text-[#1B2A5C] mt-2 font-mono">
                     Rp150.000
                   </div>
                 </div>
-                <div className="bg-white p-5 rounded-xl border border-[#E6E9F2]">
-                  <div className="text-xs font-semibold uppercase text-[#5B6478] tracking-wider">
+                <div className="bg-white p-5 rounded-2xl border border-[#E6E4DD] shadow-xs">
+                  <div className="text-[11px] font-bold uppercase text-[#64748B] tracking-wider">
                     Laba Bersih
                   </div>
-                  <div className="text-2xl font-semibold text-[#1B7F3B] mt-2 font-mono">
+                  <div className="text-2xl font-bold text-emerald-600 mt-2 font-mono">
                     Rp517.000
                   </div>
                 </div>
@@ -277,14 +262,14 @@ export const AppContent: React.FC = () => {
           {currentPage === 'analysis' && (
             <div className="space-y-6">
               <div>
-                <h1 className="text-2xl font-semibold text-[#1B2A5C] tracking-tight">
+                <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">
                   Analisa & BEP
                 </h1>
-                <p className="text-xs text-[#5B6478] mt-1">
+                <p className="text-xs text-[#64748B] mt-1 font-medium">
                   Simulasi titik impas modal kemitraan INCHA Karang Tengah
                 </p>
               </div>
-              <div className="bg-white rounded-xl border border-[#E6E9F2] p-6">
+              <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-6">
                 <PackagingConfigCard />
               </div>
             </div>
@@ -293,16 +278,16 @@ export const AppContent: React.FC = () => {
           {currentPage === 'promo' && (
             <div className="space-y-6">
               <div>
-                <h1 className="text-2xl font-semibold text-[#1B2A5C] tracking-tight">
+                <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">
                   Promo & Diskon
                 </h1>
-                <p className="text-xs text-[#5B6478] mt-1">
+                <p className="text-xs text-[#64748B] mt-1 font-medium">
                   Atur strategi diskon, batas kuota per hari, dan cek dampak terhadap margin laba
                 </p>
               </div>
-              <div className="bg-white rounded-xl border border-[#E6E9F2] p-8 text-center">
-                <p className="text-sm text-[#5B6478]">
-                  Modul Promo siap diimplementasikan pada Langkah 5 sesuai rencana kerja.
+              <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-8 text-center">
+                <p className="text-sm text-[#64748B]">
+                  Modul Promo siap diatur sesuai rencana promosi outlet.
                 </p>
               </div>
             </div>
@@ -311,14 +296,14 @@ export const AppContent: React.FC = () => {
           {currentPage === 'settings' && (
             <div className="space-y-6">
               <div>
-                <h1 className="text-2xl font-semibold text-[#1B2A5C] tracking-tight">
+                <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">
                   Pengaturan
                 </h1>
-                <p className="text-xs text-[#5B6478] mt-1">
+                <p className="text-xs text-[#64748B] mt-1 font-medium">
                   Parameter operasional, akun pemilik terdaftar, dan hak akses PIN kasir
                 </p>
               </div>
-              <div className="bg-white rounded-xl border border-[#E6E9F2] p-6">
+              <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-6">
                 <EmployeeManagementCard />
               </div>
             </div>
@@ -327,14 +312,14 @@ export const AppContent: React.FC = () => {
           {currentPage === 'audit' && (
             <div className="space-y-6">
               <div>
-                <h1 className="text-2xl font-semibold text-[#1B2A5C] tracking-tight">
+                <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">
                   Riwayat Perubahan (Audit Log)
                 </h1>
-                <p className="text-xs text-[#5B6478] mt-1">
+                <p className="text-xs text-[#64748B] mt-1 font-medium">
                   Catatan otomatis setiap perubahan resep, harga bahan, dan pengaturan
                 </p>
               </div>
-              <div className="bg-white rounded-xl border border-[#E6E9F2] p-6">
+              <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-6">
                 <AuditLogView />
               </div>
             </div>

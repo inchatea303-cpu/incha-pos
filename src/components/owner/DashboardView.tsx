@@ -7,7 +7,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { AlertTriangle, ArrowUpRight, ArrowDownRight, Coffee } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, ArrowDownRight, Coffee, Store } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
 import { formatRupiah, formatDateWIB } from '../../utils/calculations';
 import { SalesTransaction } from '../../types';
@@ -141,25 +141,41 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   return (
     <div className="space-y-6 max-w-[1120px] mx-auto pb-8">
       {/* 1. Header Halaman */}
-      <div>
-        <h1 className="text-2xl font-semibold text-[#1B2A5C] tracking-tight">
-          Dashboard
-        </h1>
-        <p className="text-xs text-[#5B6478] mt-1">{dateText}</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">
+              Dashboard
+            </h1>
+            <span className="text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full">
+              Live Outlet
+            </span>
+          </div>
+          <p className="text-xs text-[#64748B] mt-1 font-medium">{dateText}</p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onOpenCashier}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-[#1B2A5C] hover:bg-[#131E42] text-white text-xs font-semibold rounded-xl transition-all shadow-xs"
+        >
+          <Store className="w-4 h-4" />
+          <span>Buka Kasir POS</span>
+        </button>
       </div>
 
       {/* 2. Empat Kartu Angka Utama (Tinggi 96px) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Omzet Hari Ini */}
-        <div className="h-24 bg-white rounded-xl border border-[#E6E9F2] p-4 flex flex-col justify-between">
-          <div className="text-xs font-semibold uppercase tracking-wider text-[#5B6478]">
+        <div className="h-26 bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-4 flex flex-col justify-between hover:border-[#1B2A5C]/30 transition-colors">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-[#64748B]">
             Omzet Hari Ini
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-xl font-semibold text-[#1B2A5C] tabular-nums">
+            <span className="text-2xl font-bold text-[#1B2A5C] tabular-nums tracking-tight">
               {formatRupiah(todayGross > 0 ? todayGross : 1150000)}
             </span>
-            <span className="text-xs font-medium text-[#1B7F3B] flex items-center gap-0.5 tabular-nums">
+            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md flex items-center gap-0.5 tabular-nums">
               <ArrowUpRight className="w-3.5 h-3.5" />
               +8.5%
             </span>
@@ -167,55 +183,55 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Cup Terjual Hari Ini */}
-        <div className="h-24 bg-white rounded-xl border border-[#E6E9F2] p-4 flex flex-col justify-between">
-          <div className="text-xs font-semibold uppercase tracking-wider text-[#5B6478]">
+        <div className="h-26 bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-4 flex flex-col justify-between hover:border-[#1B2A5C]/30 transition-colors">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-[#64748B]">
             Cup Terjual
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-xl font-semibold text-[#1B2A5C] tabular-nums">
+            <span className="text-2xl font-bold text-[#1B2A5C] tabular-nums tracking-tight">
               {todayCups > 0 ? todayCups : 85} cup
             </span>
-            <span className="text-xs text-[#5B6478]">vs 78 kemarin</span>
+            <span className="text-xs text-[#64748B] font-medium">vs 78 kemarin</span>
           </div>
         </div>
 
         {/* Laba Bersih Hari Ini */}
-        <div className="h-24 bg-white rounded-xl border border-[#E6E9F2] p-4 flex flex-col justify-between">
-          <div className="text-xs font-semibold uppercase tracking-wider text-[#5B6478]">
+        <div className="h-26 bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-4 flex flex-col justify-between hover:border-[#1B2A5C]/30 transition-colors">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-[#64748B]">
             Laba Bersih Hari Ini
           </div>
           <div className="flex items-baseline justify-between">
             <span
-              className={`text-xl font-semibold tabular-nums ${
+              className={`text-2xl font-bold tabular-nums tracking-tight ${
                 (todayGross > 0 ? todayNetProfit : 560000) >= 0
-                  ? 'text-[#1B7F3B]'
+                  ? 'text-emerald-700'
                   : 'text-[#D7262E]'
               }`}
             >
               {formatRupiah(todayGross > 0 ? todayNetProfit : 560000)}
             </span>
-            <span className="text-xs text-[#5B6478]">margin 48.7%</span>
+            <span className="text-xs text-[#64748B] font-medium">margin 48.7%</span>
           </div>
         </div>
 
         {/* Progres Titik Impas (BEP) */}
-        <div className="h-24 bg-white rounded-xl border border-[#E6E9F2] p-4 flex flex-col justify-between">
-          <div className="text-xs font-semibold uppercase tracking-wider text-[#5B6478]">
+        <div className="h-26 bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-4 flex flex-col justify-between hover:border-[#1B2A5C]/30 transition-colors">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-[#64748B]">
             Progres Titik Impas
           </div>
           <div>
             <div className="flex items-baseline justify-between mb-1.5">
-              <span className="text-xl font-semibold text-[#1B2A5C] tabular-nums">
+              <span className="text-2xl font-bold text-[#1B2A5C] tabular-nums tracking-tight">
                 {bepProgressPct > 0 ? bepProgressPct : 85}%
               </span>
-              <span className="text-xs text-[#5B6478] tabular-nums">
+              <span className="text-xs text-[#64748B] tabular-nums font-medium">
                 target 25 cup
               </span>
             </div>
             {/* Batang tipis progres */}
-            <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden">
+            <div className="w-full h-1.5 bg-[#F1EFEA] rounded-full overflow-hidden">
               <div
-                className="h-full bg-[#1B2A5C] rounded-full transition-all duration-150"
+                className="h-full bg-[#1B2A5C] rounded-full transition-all duration-200"
                 style={{ width: `${bepProgressPct > 0 ? bepProgressPct : 85}%` }}
               />
             </div>
@@ -224,7 +240,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* 3. Kartu Grafik Besar (Lebar Penuh, Tinggi 280px, Dua Garis Tenang) */}
-      <div className="bg-white rounded-xl border border-[#E6E9F2] p-5">
+      <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-6">
         <div className="flex items-center justify-between mb-3">
           <div>
             <h2 className="text-sm font-semibold text-[#1B2A5C]">
@@ -296,7 +312,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* 4. Dua Kolom: Stok Menipis (Kiri) & Menu Terlaris (Kanan) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Kolom Kiri: Stok Menipis (Maksimal 5) */}
-        <div className="bg-white rounded-xl border border-[#E6E9F2] p-5 flex flex-col justify-between">
+        <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-6 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-[#1B2A5C]">
@@ -335,7 +351,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Kolom Kanan: Menu Terlaris Hari Ini (Maksimal 5) */}
-        <div className="bg-white rounded-xl border border-[#E6E9F2] p-5 flex flex-col justify-between">
+        <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-6 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-[#1B2A5C]">
@@ -369,7 +385,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* 5. Tabel Transaksi Terakhir (Maksimal 10 Baris) */}
-      <div className="bg-white rounded-xl border border-[#E6E9F2] overflow-hidden">
+      <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs overflow-hidden">
         <div className="p-5 border-b border-[#E6E9F2] flex items-center justify-between">
           <div>
             <h3 className="text-sm font-semibold text-[#1B2A5C]">

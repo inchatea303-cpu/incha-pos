@@ -59,9 +59,12 @@ interface StoreContextType {
   clearAlert: () => void;
   // Auth & Roles
   authenticatedOwner: OwnerAccount | null;
+  isCashierAuthenticated: boolean;
   sessionExpiredMessage: string | null;
   ownerLogin: (owner: OwnerAccount) => void;
   ownerLogout: () => void;
+  loginCashier: (pin: string) => { success: boolean; message: string };
+  logoutCashier: () => void;
   loginWithPin: (pin: string) => { success: boolean; message: string; role?: UserRole };
   logout: () => void;
   switchRole: (newRole: UserRole, pin?: string) => boolean;
@@ -153,6 +156,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch {
       return null;
     }
+  });
+
+  const [isCashierAuthenticated, setIsCashierAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem('incha_cashier_authenticated') === 'true';
   });
 
   const [role, setRole] = useState<UserRole>(() => {
@@ -311,6 +318,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
     setCurrentEmployee(null);
     localStorage.removeItem(STORAGE_KEYS.CURRENT_EMP);
+    setRole('karyawan');
+  };
+
+  const loginCashier = (pin: string): { success: boolean; message: string } => {
+    if (pin === '1234') {
+      setIsCashierAuthenticated(true);
+      localStorage.setItem('incha_cashier_authenticated', 'true');
+      setRole('karyawan');
+      addAuditLog('LOGIN_KASIR', 'Akun Kasir Outlet berhasil masuk dengan PIN.', 'Kasir Outlet');
+      return { success: true, message: 'Berhasil masuk ke Kasir POS' };
+    }
+    return { success: false, message: 'PIN Kasir salah. Silakan coba lagi.' };
+  };
+
+  const logoutCashier = () => {
+    setIsCashierAuthenticated(false);
+    localStorage.removeItem('incha_cashier_authenticated');
+    addAuditLog('LOGOUT_KASIR', 'Kasir Outlet keluar.', 'Kasir Outlet');
     setRole('karyawan');
   };
 
@@ -744,9 +769,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         pendingOfflineCount,
         clearAlert,
         authenticatedOwner,
+        isCashierAuthenticated,
         sessionExpiredMessage,
         ownerLogin,
         ownerLogout,
+        loginCashier,
+        logoutCashier,
         loginWithPin,
         logout,
         switchRole,

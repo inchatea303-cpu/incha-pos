@@ -81,14 +81,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 key={item.id}
                 type="button"
                 onClick={() => onNavigate(item.id)}
-                className={`w-full h-11 flex items-center gap-3 px-3 rounded-lg text-sm font-medium transition-colors duration-150 ${
+                className={`w-full h-11 flex items-center gap-3 px-3 rounded-xl text-xs font-semibold transition-all duration-150 relative ${
                   isActive
-                    ? 'bg-white/10 text-white font-semibold'
+                    ? 'bg-white/15 text-white font-bold shadow-xs'
                     : 'text-gray-300 hover:text-white hover:bg-white/5'
                 }`}
                 title={item.label}
               >
-                <Icon className="w-[18px] h-[18px] shrink-0" />
+                {isActive && (
+                  <div className="absolute left-0 top-2.5 bottom-2.5 w-1 bg-white rounded-r-full" />
+                )}
+                <Icon className={`w-[18px] h-[18px] shrink-0 ${isActive ? 'text-white' : 'text-gray-300'}`} />
                 <span className="hidden md:inline truncate">{item.label}</span>
               </button>
             );

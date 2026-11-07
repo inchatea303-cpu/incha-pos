@@ -83,6 +83,16 @@ export const CashierMain: React.FC = () => {
     const unsubscribe = bluetoothPrinter.onStatusChange((status) => {
       setBtStatus(status);
     });
+
+    // Otomatis sambungkan kembali di latar belakang saat halaman dimuat/refresh (tanpa popup izin)
+    if (!bluetoothPrinter.connected) {
+      bluetoothPrinter.tryAutoConnectOnLoad().then((connected) => {
+        if (connected) {
+          setBtStatus(`Terhubung otomatis: ${bluetoothPrinter.name}`);
+        }
+      });
+    }
+
     return () => unsubscribe();
   }, []);
 

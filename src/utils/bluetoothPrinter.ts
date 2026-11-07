@@ -100,6 +100,15 @@ export class BluetoothPrinterService {
 
       // Cari service & characteristic untuk menulis data
       const success = await this.discoverWritableCharacteristic(server);
+      
+      // Simpan identitas perangkat agar bisa auto-connect saat refresh tanpa dialog izin
+      try {
+        if (device.id) {
+          localStorage.setItem('incha_bt_device_id', device.id);
+          localStorage.setItem('incha_bt_device_name', this.printerName);
+        }
+      } catch {}
+
       if (success) {
         this.isConnected = true;
         this.startHeartbeat();
@@ -125,6 +134,53 @@ export class BluetoothPrinterService {
         message: error.message || 'Gagal menyambungkan ke printer Bluetooth.',
       };
     }
+  }
+
+  // Coba sambung otomatis di latar belakang saat halaman dimuat/refresh (tanpa popup izin)
+  async tryAutoConnectOnLoad(): Promise<boolean> {
+    if (!this.isSupported() || this.isConnected) return false;
+
+    try {
+      const bluetooth = (navigator as any).bluetooth;
+      if (!bluetooth || typeof bluetooth.getDevices !== 'function') {
+        return false;
+      }
+
+      const devices: any[] = await bluetooth.getDevices();
+      if (!devices || devices.length === 0) return false;
+
+      const savedId = localStorage.getItem('incha_bt_device_id');
+      const targetDevice = savedId
+        ? devices.find((d) => d.id === savedId) || devices[0]
+        : devices[0];
+
+      if (!targetDevice) return false;
+
+      console.log('[BT] Auto-connect on load menemukan printer:', targetDevice.name);
+      this.device = targetDevice;
+      this.printerName = targetDevice.name || 'Printer Bluetooth ESC/POS';
+
+      targetDevice.addEventListener('gattserverdisconnected', () => {
+        console.warn('[BT] Koneksi Bluetooth terputus dari printer.');
+        this.isConnected = false;
+        this.characteristic = null;
+        this.stopHeartbeat();
+        this.notify(`Terputus dari ${this.printerName} (Mencoba sambung ulang...)`, false);
+        this.autoReconnect();
+      });
+
+      const server = await targetDevice.gatt.connect();
+      const success = await this.discoverWritableCharacteristic(server);
+      if (success) {
+        this.isConnected = true;
+        this.startHeartbeat();
+        this.notify(`Terhubung otomatis: ${this.printerName}`, true);
+        return true;
+      }
+    } catch (e) {
+      console.warn('[BT] Auto-connect on load belum berhasil:', e);
+    }
+    return false;
   }
 
   // Cari characteristic yang bisa ditulis
@@ -397,4 +453,26 @@ export function generateReceiptText(transaction: SalesTransaction): string {
   lines.push(center('Simpan Struk Sebagai Bukti'));
 
   return lines.join('\n');
+}
+
+/**
+ * Kirim langsung struk ke aplikasi RawBT Print Service di Android (jika terinstall)
+ * RawBT menjaga koneksi Bluetooth printer secara permanen di background OS Android.
+ */
+export function printViaRawBT(transaction: SalesTransaction): boolean {
+  try {
+    const text = generateReceiptText(transaction) + '\n\n\n\n';
+    const encoder = new TextEncoder();
+    const bytes = encoder.encode(text);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    const base64 = btoa(binary);
+    window.location.href = `rawbt:base64,${base64}`;
+    return true;
+  } catch (err) {
+    console.warn('[RawBT] Gagal mengirim struk via RawBT:', err);
+    return false;
+  }
 }

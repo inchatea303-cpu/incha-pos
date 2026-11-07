@@ -73,6 +73,8 @@ export interface Product {
   isVerified: boolean;
   verificationNote?: string;
   active: boolean;
+  imageUrl?: string; // URL atau Base64 data URL foto produk
+  description?: string;
 }
 
 export interface PackagingCosts {

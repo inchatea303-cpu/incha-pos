@@ -97,6 +97,16 @@ interface StoreContextType {
   ) => void;
   deleteIngredient: (id: string, actor?: string) => void;
   // Product & Recipe Management
+  updateProduct: (
+    productId: string,
+    data: Partial<Product>,
+    updatedBy?: string
+  ) => void;
+  addProduct: (
+    productData: Omit<Product, 'id'>,
+    actor?: string
+  ) => void;
+  deleteProduct: (productId: string, actor?: string) => void;
   updateProductRecipe: (
     productId: string,
     recipe: RecipeItem[],
@@ -550,6 +560,43 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setActiveAlert(`Bahan baku "${target?.name || id}" telah dihapus.`);
   };
 
+  const updateProduct = (
+    productId: string,
+    data: Partial<Product>,
+    updatedBy?: string
+  ) => {
+    setProducts((prev) =>
+      prev.map((prod) => (prod.id === productId ? { ...prod, ...data } : prod))
+    );
+    const prod = products.find((p) => p.id === productId);
+    addAuditLog(
+      'UPDATE_PRODUK',
+      `Data menu ${prod?.name || productId} diperbarui.`,
+      updatedBy
+    );
+  };
+
+  const addProduct = (
+    productData: Omit<Product, 'id'>,
+    actor?: string
+  ) => {
+    const newId = `prod-${Date.now()}`;
+    const newProd: Product = {
+      ...productData,
+      id: newId,
+    };
+    setProducts((prev) => [newProd, ...prev]);
+    addAuditLog('TAMBAH_PRODUK', `Menambah menu baru: ${productData.name}`, actor);
+    setActiveAlert(`Menu baru "${productData.name}" berhasil ditambahkan.`);
+  };
+
+  const deleteProduct = (productId: string, actor?: string) => {
+    const target = products.find((p) => p.id === productId);
+    setProducts((prev) => prev.filter((p) => p.id !== productId));
+    addAuditLog('HAPUS_PRODUK', `Menghapus menu: ${target?.name || productId}`, actor);
+    setActiveAlert(`Menu "${target?.name || productId}" telah dihapus.`);
+  };
+
   const updateProductRecipe = (
     productId: string,
     recipe: RecipeItem[],
@@ -941,6 +988,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         updateIngredientDetails,
         addIngredient,
         deleteIngredient,
+        updateProduct,
+        addProduct,
+        deleteProduct,
         updateProductRecipe,
         updateProductPrice,
         updatePackaging,

@@ -422,9 +422,17 @@ export const CashierMain: React.FC = () => {
                     }`}
                   >
                     <div className="flex items-start justify-between">
-                      <div className="w-8 h-8 rounded-lg bg-[#1B2A5C] text-white font-bold text-xs flex items-center justify-center">
-                        {initials}
-                      </div>
+                      {prod.imageUrl ? (
+                        <img
+                          src={prod.imageUrl}
+                          alt={prod.name}
+                          className="w-10 h-10 rounded-xl object-cover border border-[#E2DED6] shadow-xs"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-lg bg-[#1B2A5C] text-white font-bold text-xs flex items-center justify-center">
+                          {initials}
+                        </div>
+                      )}
                       {inCartItem ? (
                         <span className="w-6 h-6 rounded-full bg-[#1B2A5C] text-white font-bold text-xs flex items-center justify-center tabular-nums">
                           {inCartItem.quantity}

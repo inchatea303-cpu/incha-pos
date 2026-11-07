@@ -470,8 +470,8 @@ export function printViaRawBT(transaction: SalesTransaction): boolean {
     }
     const base64 = btoa(binary);
 
-    // Gunakan skema Android Intent resmi RawBT agar langsung dieksekusi tanpa dialog konfirmasi
-    window.location.href = `intent:base64,${base64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;`;
+    // Gunakan skema Android Intent resmi RawBT dengan action PRINT_RAWBT agar langsung dicetak
+    window.location.href = `intent:base64,${base64}#Intent;action=ru.a402d.rawbtprinter.action.PRINT_RAWBT;scheme=rawbt;package=ru.a402d.rawbtprinter;end;`;
     return true;
   } catch (err) {
     console.warn('[RawBT] Gagal mengirim struk via RawBT:', err);

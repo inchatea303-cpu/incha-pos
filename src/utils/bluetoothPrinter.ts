@@ -461,7 +461,7 @@ export function generateReceiptText(transaction: SalesTransaction): string {
  */
 export function printViaRawBT(transaction: SalesTransaction): boolean {
   try {
-    const text = generateReceiptText(transaction) + '\n\n\n\n';
+    const text = generateReceiptText(transaction) + '\n\n\n\n\x1B\x6D';
     const encoder = new TextEncoder();
     const bytes = encoder.encode(text);
     let binary = '';
@@ -475,4 +475,36 @@ export function printViaRawBT(transaction: SalesTransaction): boolean {
     console.warn('[RawBT] Gagal mengirim struk via RawBT:', err);
     return false;
   }
+}
+
+export function printTestViaRawBT(): boolean {
+  const dummyTx: SalesTransaction = {
+    id: 'test-rawbt',
+    invoiceNumber: 'TEST-RAWBT-01',
+    timestamp: new Date().toISOString(),
+    cashierName: 'Kasir Toko',
+    cashierId: 'kasir-01',
+    channel: 'direct',
+    paymentMethod: 'cash',
+    items: [
+      {
+        productId: 'p1',
+        productName: 'Peach Jasmine Milk Tea (L)',
+        quantity: 1,
+        unitPrice: 24000,
+        discountAmount: 0,
+        subtotal: 24000,
+        hppPerUnit: 9200,
+      },
+    ],
+    totalGross: 24000,
+    totalDiscount: 0,
+    totalNet: 24000,
+    totalHpp: 9200,
+    cashReceived: 50000,
+    cashChange: 26000,
+    syncStatus: 'terkirim',
+    isVoided: false,
+  };
+  return printViaRawBT(dummyTx);
 }

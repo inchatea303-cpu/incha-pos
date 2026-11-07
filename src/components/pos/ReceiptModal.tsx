@@ -201,17 +201,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
         {/* Action Buttons */}
         <div className="p-4 bg-white border-t border-[#E2DED6] space-y-2 shrink-0">
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={handlePrint}
-              disabled={isPrinting}
-              className="h-12 rounded-xl bg-[#1B2A5C] hover:bg-[#243775] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow transition-all active:scale-95"
-            >
-              <Printer className="w-4 h-4" />
-              <span>Cetak Bluetooth</span>
-            </button>
-
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <button
               type="button"
               onClick={async () => {
@@ -236,17 +226,27 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
                 const isAndroid = /android/i.test(navigator.userAgent);
                 if (isAndroid) {
-                  // Jika di android, coba lempar ke RawBT bila terpasang
+                  setPrintStatus('Mengirim struk ke RawBT Printer...');
                   printViaRawBT(transaction);
                 } else {
                   window.print();
                 }
               }}
-              className="h-12 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95"
-              title="Cetak lewat driver printer Windows / kabel USB / RawBT tanpa risiko disconnect"
+              className="h-12 rounded-xl bg-[#1B2A5C] hover:bg-[#243775] text-white font-bold text-xs flex items-center justify-center gap-2 shadow transition-all active:scale-95"
+              title="Cetak lewat RawBT (Android) atau Spooler Windows tanpa risiko terputus"
             >
-              <Printer className="w-4 h-4 text-emerald-700" />
-              <span>Cetak USB / Spooler</span>
+              <Printer className="w-4 h-4 text-emerald-400" />
+              <span>Cetak Struk (RawBT / Anti-Putus)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePrint}
+              disabled={isPrinting}
+              className="h-12 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95"
+            >
+              <Printer className="w-4 h-4 text-gray-500" />
+              <span>Cetak Web Bluetooth</span>
             </button>
           </div>
 

@@ -34,7 +34,7 @@ import {
   SalesTransaction,
 } from '../../types';
 import { formatRupiah, formatDateWIB } from '../../utils/calculations';
-import { bluetoothPrinter } from '../../utils/bluetoothPrinter';
+import { bluetoothPrinter, printTestViaRawBT } from '../../utils/bluetoothPrinter';
 import { ReceiptModal } from './ReceiptModal';
 import { CheckoutConfirmModal } from './CheckoutConfirmModal';
 
@@ -748,13 +748,47 @@ export const CashierMain: React.FC = () => {
       {/* 5. TAB: PRINTER & BLUETOOTH */}
       {activePosTab === 'printer' && (
         <div className="p-4 flex-1 overflow-y-auto space-y-4 bg-[#FAF8F4]">
+          {/* KARTU RAWBT (BEBAS PUTUS UNTUK TABLET ANDROID) */}
+          <div className="bg-white p-4 rounded-2xl border-2 border-emerald-500/40 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Printer className="w-5 h-5 text-emerald-700" />
+                <div>
+                  <h3 className="font-bold text-sm text-[#1B2A5C] flex items-center gap-2">
+                    <span>Layanan RawBT (Tablet Android)</span>
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
+                      Direkomendasikan (Anti-Putus)
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-[#6B7280]">
+                    Koneksi OS permanen 24 jam. Tidak perlu reconnect walau aplikasi di-refresh!
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                const ok = printTestViaRawBT();
+                if (!ok) {
+                  alert('Gagal memicu RawBT. Pastikan aplikasi RawBT sudah terinstall di tablet.');
+                }
+              }}
+              className="w-full h-11 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center justify-center gap-2 shadow"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Tes Cetak via RawBT (RPP02N)</span>
+            </button>
+          </div>
+
           <div className="bg-white p-4 rounded-2xl border border-[#E2DED6] shadow-sm space-y-3">
             <div className="flex items-center gap-2">
               <Bluetooth className="w-5 h-5 text-[#1B2A5C]" />
               <div>
-                <h3 className="font-bold text-sm text-[#1B2A5C]">Printer Bluetooth ESC/POS</h3>
+                <h3 className="font-bold text-sm text-[#1B2A5C]">Printer Web Bluetooth (Jalur Alternatif)</h3>
                 <p className="text-[11px] text-[#6B7280]">
-                  Koneksi printer thermal struk & trigger laci uang otomatis
+                  Koneksi manual langsung lewat browser
                 </p>
               </div>
             </div>

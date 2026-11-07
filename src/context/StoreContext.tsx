@@ -41,6 +41,11 @@ import {
   updateTransactionSyncStatus,
   syncOfflineQueue,
 } from '../utils/offlineQueue';
+import {
+  pushTransactionsToCloud,
+  fetchTransactionsFromCloud,
+  resetCloudTransactions,
+} from '../utils/cloudSync';
 
 interface StoreContextType {
   role: UserRole;
@@ -81,6 +86,11 @@ interface StoreContextType {
     data: Partial<Ingredient>,
     updatedBy?: string
   ) => void;
+  addIngredient: (
+    data: Omit<Ingredient, 'id' | 'costPerPortion'>,
+    actor?: string
+  ) => void;
+  deleteIngredient: (id: string, actor?: string) => void;
   // Product & Recipe Management
   updateProductRecipe: (
     productId: string,
@@ -105,8 +115,10 @@ interface StoreContextType {
   ) => Promise<SalesTransaction>;
   voidTransaction: (transactionId: string, reason: string) => void;
   syncPendingTransactions: () => Promise<number>;
+  syncCloudData: () => Promise<void>;
   // Reset & Audit
   addAuditLog: (action: string, details: string, actor?: string) => void;
+  resetTransactions: () => void;
   resetAllData: () => void;
 }
 
@@ -175,9 +187,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     safeLoadFromStorage<Employee | null>(STORAGE_KEYS.CURRENT_EMP, null)
   );
 
-  const [ingredients, setIngredients] = useState<Ingredient[]>(() =>
-    safeLoadFromStorage(STORAGE_KEYS.INGREDIENTS, INITIAL_INGREDIENTS)
-  );
+  const [ingredients, setIngredients] = useState<Ingredient[]>(() => {
+    const saved = safeLoadFromStorage(STORAGE_KEYS.INGREDIENTS, INITIAL_INGREDIENTS);
+    const existingIds = new Set(saved.map((i: Ingredient) => i.id));
+    const missing = INITIAL_INGREDIENTS.filter((init) => !existingIds.has(init.id));
+    return missing.length > 0 ? [...saved, ...missing] : saved;
+  });
 
   const [products, setProducts] = useState<Product[]>(() =>
     safeLoadFromStorage(STORAGE_KEYS.PRODUCTS, INITIAL_PRODUCTS)
@@ -225,11 +240,40 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setPendingOfflineCount(items.length);
     });
 
+    // Sinkronisasi transaksi dari Cloud ke Lokal saat awal buka
+    syncCloudData();
+
+    // Polling background setiap 10 detik agar tablet kasir dan HP pemilik selalu sinkron
+    const syncInterval = setInterval(() => {
+      if (navigator.onLine) {
+        syncCloudData();
+      }
+    }, 10000);
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      clearInterval(syncInterval);
     };
   }, []);
+
+  const syncCloudData = async () => {
+    try {
+      const cloudTxs = await fetchTransactionsFromCloud();
+      if (cloudTxs && Array.isArray(cloudTxs)) {
+        setTransactions((prev) => {
+          const existingIds = new Set(prev.map((t) => t.id));
+          const hasNew = cloudTxs.some((t) => !existingIds.has(t.id));
+          if (hasNew || cloudTxs.length !== prev.length) {
+            return cloudTxs;
+          }
+          return prev;
+        });
+      }
+    } catch (e) {
+      console.warn('[CloudSync] Polling gagal:', e);
+    }
+  };
 
   // Sync to localStorage
   useEffect(() => {
@@ -449,6 +493,37 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
   };
 
+  const addIngredient = (
+    data: Omit<Ingredient, 'id' | 'costPerPortion'>,
+    actor = 'Pemilik'
+  ) => {
+    const id = `ing-custom-${Date.now()}`;
+    const costPerPortion = calculatePortionCost(data.buyPrice, data.portionsPerUnit);
+    const newIngredient: Ingredient = {
+      ...data,
+      id,
+      costPerPortion,
+    };
+    setIngredients((prev) => [...prev, newIngredient]);
+    addAuditLog(
+      'TAMBAH_BAHAN_BARU',
+      `Menambahkan bahan baku baru: ${data.name} (${data.category}) seharga Rp${data.buyPrice.toLocaleString('id-ID')}/${data.unit}`,
+      actor
+    );
+    setActiveAlert(`Bahan baku "${data.name}" berhasil ditambahkan ke daftar.`);
+  };
+
+  const deleteIngredient = (id: string, actor = 'Pemilik') => {
+    const target = ingredients.find((i) => i.id === id);
+    setIngredients((prev) => prev.filter((i) => i.id !== id));
+    addAuditLog(
+      'HAPUS_BAHAN',
+      `Menghapus bahan baku: ${target?.name || id}`,
+      actor
+    );
+    setActiveAlert(`Bahan baku "${target?.name || id}" telah dihapus.`);
+  };
+
   const updateProductRecipe = (
     productId: string,
     recipe: RecipeItem[],
@@ -609,7 +684,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
 
     // 2. Simpan Transaksi ke State & LocalStorage
-    setTransactions((prev) => [newTx, ...prev]);
+    const updated = [newTx, ...transactions];
+    setTransactions(updated);
+    // Push ke Cloud agar tablet kasir dan HP/Laptop pemilik langsung sinkron
+    pushTransactionsToCloud(updated);
 
     // 3. Simpan ke IndexedDB (Antrean Offline)
     try {
@@ -720,6 +798,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  const resetTransactions = async () => {
+    localStorage.removeItem(STORAGE_KEYS.TRANSACTIONS);
+    setTransactions([]);
+    await resetCloudTransactions();
+    // Kembalikan stok bahan fisik ke porsi semula
+    setIngredients((prev) =>
+      prev.map((ing) => {
+        const initial = INITIAL_INGREDIENTS.find((i) => i.id === ing.id);
+        return initial ? { ...ing, currentStock: initial.currentStock } : ing;
+      })
+    );
+    addAuditLog(
+      'RESET_PENJUALAN',
+      'Seluruh transaksi penjualan uji coba telah dibersihkan dan omzet di-reset ke Rp0.'
+    );
+    setActiveAlert('Seluruh transaksi uji coba berhasil dibersihkan! Omzet & penjualan kini Rp0 dan siap untuk jualan resmi.');
+  };
+
   const resetAllData = () => {
     localStorage.removeItem(STORAGE_KEYS.INGREDIENTS);
     localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
@@ -781,6 +877,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         toggleEmployeeStatus,
         updateIngredientPrice,
         updateIngredientDetails,
+        addIngredient,
+        deleteIngredient,
         updateProductRecipe,
         updateProductPrice,
         updatePackaging,
@@ -790,7 +888,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         recordSale,
         voidTransaction,
         syncPendingTransactions,
+        syncCloudData,
         addAuditLog,
+        resetTransactions,
         resetAllData,
       }}
     >

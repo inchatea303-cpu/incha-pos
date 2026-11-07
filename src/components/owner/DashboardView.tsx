@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   LineChart,
   Line,
@@ -7,7 +7,16 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { AlertTriangle, ArrowUpRight, ArrowDownRight, Coffee, Store } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  ArrowDownRight,
+  Coffee,
+  Store,
+  RotateCcw,
+  RefreshCw,
+  Cloud,
+} from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
 import { formatRupiah, formatDateWIB } from '../../utils/calculations';
 import { SalesTransaction } from '../../types';
@@ -21,7 +30,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigateToFinance,
   onOpenCashier,
 }) => {
-  const { transactions, ingredients, products, packaging, businessParams } = useStore();
+  const {
+    transactions,
+    ingredients,
+    products,
+    packaging,
+    businessParams,
+    resetTransactions,
+    syncCloudData,
+  } = useStore();
+
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // 1. Tanggal Hari Ini (Format Indonesia)
   const today = new Date();
@@ -147,21 +167,53 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">
               Dashboard
             </h1>
-            <span className="text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full">
-              Live Outlet
+            <span className="text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+              Live Cloud Outlet
             </span>
           </div>
           <p className="text-xs text-[#64748B] mt-1 font-medium">{dateText}</p>
         </div>
 
-        <button
-          type="button"
-          onClick={onOpenCashier}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-[#1B2A5C] hover:bg-[#131E42] text-white text-xs font-semibold rounded-xl transition-all shadow-xs"
-        >
-          <Store className="w-4 h-4" />
-          <span>Buka Kasir POS</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Tombol Sinkronisasi Cloud */}
+          <button
+            type="button"
+            onClick={async () => {
+              setIsSyncing(true);
+              await syncCloudData();
+              setTimeout(() => setIsSyncing(false), 600);
+            }}
+            disabled={isSyncing}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-gray-50 border border-[#E6E4DD] text-[#1B2A5C] text-xs font-semibold rounded-xl transition-all shadow-xs"
+            title="Tarik data terbaru dari kasir tablet ke dashboard"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-emerald-600' : 'text-gray-500'}`} />
+            <span>{isSyncing ? 'Menyinkronkan...' : 'Sinkron Cloud'}</span>
+          </button>
+
+          {/* Tombol Reset Transaksi Uji Coba */}
+          {transactions.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setIsResetConfirmOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-rose-50 border border-rose-200 text-[#D7262E] text-xs font-semibold rounded-xl transition-all shadow-xs"
+              title="Bersihkan transaksi uji coba printer dan reset omzet ke Rp0"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset Penjualan</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={onOpenCashier}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-[#1B2A5C] hover:bg-[#131E42] text-white text-xs font-semibold rounded-xl transition-all shadow-xs"
+          >
+            <Store className="w-4 h-4" />
+            <span>Buka Kasir POS</span>
+          </button>
+        </div>
       </div>
 
       {/* 2. Empat Kartu Angka Utama (Tinggi 96px) */}
@@ -173,11 +225,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="flex items-baseline justify-between">
             <span className="text-2xl font-bold text-[#1B2A5C] tabular-nums tracking-tight">
-              {formatRupiah(todayGross > 0 ? todayGross : 1150000)}
+              {formatRupiah(todayGross)}
             </span>
             <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md flex items-center gap-0.5 tabular-nums">
               <ArrowUpRight className="w-3.5 h-3.5" />
-              +8.5%
+              {todayGross > 0 ? '+100%' : '0%'}
             </span>
           </div>
         </div>
@@ -189,9 +241,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="flex items-baseline justify-between">
             <span className="text-2xl font-bold text-[#1B2A5C] tabular-nums tracking-tight">
-              {todayCups > 0 ? todayCups : 85} cup
+              {todayCups} cup
             </span>
-            <span className="text-xs text-[#64748B] font-medium">vs 78 kemarin</span>
+            <span className="text-xs text-[#64748B] font-medium">
+              target 25 cup
+            </span>
           </div>
         </div>
 
@@ -203,14 +257,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="flex items-baseline justify-between">
             <span
               className={`text-2xl font-bold tabular-nums tracking-tight ${
-                (todayGross > 0 ? todayNetProfit : 560000) >= 0
-                  ? 'text-emerald-700'
-                  : 'text-[#D7262E]'
+                todayNetProfit >= 0 ? 'text-emerald-700' : 'text-[#D7262E]'
               }`}
             >
-              {formatRupiah(todayGross > 0 ? todayNetProfit : 560000)}
+              {formatRupiah(todayGross > 0 ? todayNetProfit : 0)}
             </span>
-            <span className="text-xs text-[#64748B] font-medium">margin 48.7%</span>
+            <span className="text-xs text-[#64748B] font-medium">
+              {todayGross > 0
+                ? `margin ${Math.round((todayNetProfit / todayGross) * 100)}%`
+                : 'margin 0%'}
+            </span>
           </div>
         </div>
 
@@ -222,7 +278,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div>
             <div className="flex items-baseline justify-between mb-1.5">
               <span className="text-2xl font-bold text-[#1B2A5C] tabular-nums tracking-tight">
-                {bepProgressPct > 0 ? bepProgressPct : 85}%
+                {bepProgressPct}%
               </span>
               <span className="text-xs text-[#64748B] tabular-nums font-medium">
                 target 25 cup
@@ -232,7 +288,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="w-full h-1.5 bg-[#F1EFEA] rounded-full overflow-hidden">
               <div
                 className="h-full bg-[#1B2A5C] rounded-full transition-all duration-200"
-                style={{ width: `${bepProgressPct > 0 ? bepProgressPct : 85}%` }}
+                style={{ width: `${bepProgressPct}%` }}
               />
             </div>
           </div>
@@ -460,6 +516,49 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Modal Konfirmasi Reset Transaksi Uji Coba */}
+      {isResetConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-white w-full max-w-sm rounded-2xl shadow-xl border border-[#E6E4DD] p-6 space-y-4">
+            <div className="flex items-center gap-3 text-[#D7262E]">
+              <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center shrink-0">
+                <RotateCcw className="w-5 h-5 text-[#D7262E]" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-[#1B2A5C]">
+                  Reset Transaksi Uji Coba?
+                </h3>
+                <p className="text-[11px] text-[#64748B]">Kembalikan dashboard ke Rp0</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-[#5B6478] leading-relaxed">
+              Seluruh transaksi uji coba printer akan dibersihkan, omzet & cup terjual akan kembali ke <strong>Rp0</strong>, dan stok bahan dikembalikan. Cocok sebelum toko resmi buka!
+            </p>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsResetConfirmOpen(false)}
+                className="flex-1 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 text-[#1B2A5C] font-semibold text-xs transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  await resetTransactions();
+                  setIsResetConfirmOpen(false);
+                }}
+                className="flex-1 h-10 rounded-xl bg-[#D7262E] hover:bg-rose-700 text-white font-bold text-xs transition-colors shadow-xs"
+              >
+                Ya, Reset ke Nol
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

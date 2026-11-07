@@ -10,9 +10,11 @@ import {
   Filter,
   ArrowUpRight,
   ShieldAlert,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
-import { Ingredient } from '../../types';
+import { Ingredient, IngredientCategory } from '../../types';
 import { formatRupiah } from '../../utils/calculations';
 
 interface IngredientMasterProps {
@@ -25,6 +27,8 @@ export const IngredientMaster: React.FC<IngredientMasterProps> = ({ onOpenHistor
     ingredients,
     updateIngredientPrice,
     updateIngredientDetails,
+    addIngredient,
+    deleteIngredient,
     priceHistory,
   } = useStore();
 
@@ -34,6 +38,20 @@ export const IngredientMaster: React.FC<IngredientMasterProps> = ({ onOpenHistor
   const [newBuyPrice, setNewBuyPrice] = useState<string>('');
   const [newPortions, setNewPortions] = useState<string>('');
   const [previewAlert, setPreviewAlert] = useState<{ changePct: number; isOver5Pct: boolean } | null>(null);
+
+  // Modal Tambah Bahan Baru
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [addForm, setAddForm] = useState({
+    name: '',
+    category: 'cream' as IngredientCategory,
+    unit: 'liter',
+    buyPrice: 18000,
+    portionsPerUnit: 10,
+    minOrder: '1 karton',
+    minStock: 10,
+    currentStock: 20,
+    isVerified: true,
+  });
 
   const filteredIngredients = ingredients.filter((item) => {
     const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
@@ -99,15 +117,26 @@ export const IngredientMaster: React.FC<IngredientMasterProps> = ({ onOpenHistor
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {role === 'pemilik' && (
-            <button
-              onClick={onOpenHistory}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[#FAF8F4] hover:bg-[#F0EDE6] text-xs font-semibold text-[#1B2A5C] border border-[#E2DED6] transition-colors"
-            >
-              <History className="w-4 h-4 text-[#1B2A5C]" />
-              <span>Riwayat Harga Bahan ({priceHistory.length})</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setIsAddModalOpen(true)}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#1B2A5C] hover:bg-[#243775] text-xs font-bold text-white shadow transition-all"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Tambah Bahan Baku</span>
+              </button>
+
+              <button
+                onClick={onOpenHistory}
+                className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#FAF8F4] hover:bg-[#F0EDE6] text-xs font-semibold text-[#1B2A5C] border border-[#E2DED6] transition-colors"
+              >
+                <History className="w-4 h-4 text-[#1B2A5C]" />
+                <span>Riwayat Harga ({priceHistory.length})</span>
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -118,23 +147,24 @@ export const IngredientMaster: React.FC<IngredientMasterProps> = ({ onOpenHistor
           <Search className="w-4 h-4 absolute left-3 top-3 text-[#6B7280]" />
           <input
             type="text"
-            placeholder="Cari bahan (mis. Osmanthus, Cup, Cream)..."
+            placeholder="Cari bahan (mis. Susu, Es, Osmanthus, Cup)..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-sm bg-white border border-[#E2DED6] rounded-lg focus:outline-none focus:border-[#1B2A5C] transition-colors"
+            className="w-full pl-9 pr-4 py-2 text-sm bg-white border border-[#E2DED6] rounded-xl focus:outline-none focus:border-[#1B2A5C] transition-colors"
           />
         </div>
         <select
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}
-          className="px-3 py-2 text-sm bg-white border border-[#E2DED6] rounded-lg focus:outline-none focus:border-[#1B2A5C] text-[#1F2937]"
+          className="px-3 py-2 text-sm bg-white border border-[#E2DED6] rounded-xl focus:outline-none focus:border-[#1B2A5C] text-[#1F2937]"
         >
           <option value="all">Semua Kategori</option>
           <option value="base_tea">Base Tea</option>
           <option value="base_flavor">Base Rasa / Sirup</option>
           <option value="blend_flavor">Blend Buah / Bubuk</option>
-          <option value="cream">Cream & Topping</option>
+          <option value="cream">Cream & Susu / Topping</option>
           <option value="packaging">Packaging (Cup & Lid)</option>
+          <option value="other">Bahan Tambahan (Es, dll)</option>
         </select>
       </div>
 
@@ -232,13 +262,27 @@ export const IngredientMaster: React.FC<IngredientMasterProps> = ({ onOpenHistor
                           {formatRupiah(item.costPerPortion)}
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <button
-                            onClick={() => handleOpenEdit(item)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-white hover:bg-[#1B2A5C] hover:text-white text-xs font-semibold text-[#1B2A5C] border border-[#1B2A5C] transition-colors"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                            <span>Ubah Harga</span>
-                          </button>
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => handleOpenEdit(item)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white hover:bg-[#1B2A5C] hover:text-white text-xs font-semibold text-[#1B2A5C] border border-[#1B2A5C] transition-colors"
+                              title="Ubah harga beli dan porsi"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                              <span>Ubah Harga</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm(`Yakin ingin menghapus bahan "${item.name}"?`)) {
+                                  deleteIngredient(item.id);
+                                }
+                              }}
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-[#D7262E] hover:bg-rose-50 transition-colors"
+                              title="Hapus bahan"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </>
                     ) : (
@@ -349,6 +393,190 @@ export const IngredientMaster: React.FC<IngredientMasterProps> = ({ onOpenHistor
                 >
                   <ArrowUpRight className="w-4 h-4" />
                   <span>Simpan Perubahan & Update HPP</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Modal Tambah Bahan Baku Baru */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-[#FAF8F4] w-full max-w-lg rounded-2xl shadow-2xl border border-[#E2DED6] overflow-hidden">
+            <div className="bg-[#1B2A5C] text-white p-5">
+              <h3 className="font-bold text-lg">Tambah Bahan Baku Baru</h3>
+              <p className="text-xs text-gray-200 mt-0.5">
+                Masukkan bahan tambahan seperti Susu, Susu UHT, Es Kristal, Topping, dll.
+              </p>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!addForm.name.trim()) {
+                  alert('Nama bahan wajib diisi!');
+                  return;
+                }
+                addIngredient({
+                  name: addForm.name.trim(),
+                  category: addForm.category,
+                  unit: addForm.unit.trim() || 'pack',
+                  buyPrice: Number(addForm.buyPrice) || 0,
+                  portionsPerUnit: Number(addForm.portionsPerUnit) || 1,
+                  minOrder: addForm.minOrder.trim() || '1 pack',
+                  minStock: Number(addForm.minStock) || 5,
+                  currentStock: Number(addForm.currentStock) || 10,
+                  isVerified: true,
+                });
+                setIsAddModalOpen(false);
+                setAddForm({
+                  name: '',
+                  category: 'cream',
+                  unit: 'liter',
+                  buyPrice: 18000,
+                  portionsPerUnit: 10,
+                  minOrder: '1 karton',
+                  minStock: 10,
+                  currentStock: 20,
+                  isVerified: true,
+                });
+              }}
+              className="p-6 space-y-4 max-h-[80vh] overflow-y-auto"
+            >
+              <div>
+                <label className="block text-xs font-semibold text-[#1F2937] mb-1">
+                  Nama Bahan Baku *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Misal: Susu UHT Diamond, Es Kristal, dll."
+                  value={addForm.name}
+                  onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
+                  className="w-full px-3 py-2 text-sm bg-white border border-[#E2DED6] rounded-xl focus:outline-none focus:border-[#1B2A5C]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-[#1F2937] mb-1">
+                    Kategori Bahan
+                  </label>
+                  <select
+                    value={addForm.category}
+                    onChange={(e) =>
+                      setAddForm({ ...addForm, category: e.target.value as IngredientCategory })
+                    }
+                    className="w-full px-3 py-2 text-sm bg-white border border-[#E2DED6] rounded-xl focus:outline-none focus:border-[#1B2A5C]"
+                  >
+                    <option value="cream">Cream & Susu / Dairy</option>
+                    <option value="base_tea">Base Tea</option>
+                    <option value="base_flavor">Base Rasa / Sirup</option>
+                    <option value="blend_flavor">Blend Buah / Bubuk</option>
+                    <option value="packaging">Packaging</option>
+                    <option value="other">Bahan Tambahan (Es, dll)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-[#1F2937] mb-1">
+                    Satuan Beli
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="liter, pack, kg, bal, roll"
+                    value={addForm.unit}
+                    onChange={(e) => setAddForm({ ...addForm, unit: e.target.value })}
+                    className="w-full px-3 py-2 text-sm bg-white border border-[#E2DED6] rounded-xl focus:outline-none focus:border-[#1B2A5C]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-[#1F2937] mb-1">
+                    Harga Beli per Satuan (Rp) *
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="100"
+                    required
+                    value={addForm.buyPrice}
+                    onChange={(e) => setAddForm({ ...addForm, buyPrice: Number(e.target.value) })}
+                    className="w-full px-3 py-2 text-sm bg-white border border-[#E2DED6] rounded-xl focus:outline-none focus:border-[#1B2A5C] tabular-nums"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-[#1F2937] mb-1">
+                    Porsi Cup yang Dihasilkan *
+                  </label>
+                  <input
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    required
+                    value={addForm.portionsPerUnit}
+                    onChange={(e) =>
+                      setAddForm({ ...addForm, portionsPerUnit: Number(e.target.value) })
+                    }
+                    className="w-full px-3 py-2 text-sm bg-white border border-[#E2DED6] rounded-xl focus:outline-none focus:border-[#1B2A5C] tabular-nums"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex justify-between">
+                <span>Estimasi Biaya per Porsi (HPP):</span>
+                <span className="font-bold">
+                  {formatRupiah((addForm.buyPrice || 0) / (addForm.portionsPerUnit || 1))}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-[#1F2937] mb-1">
+                    Stok Awal Saat Ini
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={addForm.currentStock}
+                    onChange={(e) => setAddForm({ ...addForm, currentStock: Number(e.target.value) })}
+                    className="w-full px-3 py-2 text-sm bg-white border border-[#E2DED6] rounded-xl focus:outline-none focus:border-[#1B2A5C]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-[#1F2937] mb-1">
+                    Batas Minimum (Peringatan Restock)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={addForm.minStock}
+                    onChange={(e) => setAddForm({ ...addForm, minStock: Number(e.target.value) })}
+                    className="w-full px-3 py-2 text-sm bg-white border border-[#E2DED6] rounded-xl focus:outline-none focus:border-[#1B2A5C]"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-[#E2DED6] flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-xs font-semibold text-gray-700 transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-[#1B2A5C] hover:bg-[#243775] text-xs font-bold text-white shadow transition-colors flex items-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Simpan Bahan Baku</span>
                 </button>
               </div>
             </form>

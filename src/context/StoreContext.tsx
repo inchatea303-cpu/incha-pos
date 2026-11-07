@@ -123,15 +123,28 @@ const STORAGE_KEYS = {
   TRANSACTIONS: 'incha_sales_transactions',
 };
 
+// Helper aman membaca localStorage tanpa resiko SyntaxError jika data corrupt
+function safeLoadFromStorage<T>(key: string, fallback: T): T {
+  try {
+    const saved = localStorage.getItem(key);
+    if (!saved || saved === 'undefined' || saved === 'null') return fallback;
+    return JSON.parse(saved) as T;
+  } catch (err) {
+    console.warn(`[Storage] Gagal memuat data ${key}, beralih ke fallback.`, err);
+    return fallback;
+  }
+}
+
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Load state from localStorage or seed
   const [sessionExpiredMessage, setSessionExpiredMessage] = useState<string | null>(null);
 
   const [authenticatedOwner, setAuthenticatedOwner] = useState<OwnerAccount | null>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.OWNER_AUTH);
-    if (!saved) return null;
     try {
+      const saved = localStorage.getItem(STORAGE_KEYS.OWNER_AUTH);
+      if (!saved || saved === 'undefined' || saved === 'null') return null;
       const parsed: OwnerAccount = JSON.parse(saved);
+      if (!parsed || !parsed.email) return null;
       const session = authService.checkSession(parsed.lastActiveAt);
       if (!session.isValid) {
         return null;
@@ -141,55 +154,47 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return null;
     }
   });
+
   const [role, setRole] = useState<UserRole>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.ROLE);
     return (saved as UserRole) || 'karyawan';
   });
 
-  const [employees, setEmployees] = useState<Employee[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.EMPLOYEES);
-    return saved ? JSON.parse(saved) : INITIAL_EMPLOYEES;
-  });
+  const [employees, setEmployees] = useState<Employee[]>(() =>
+    safeLoadFromStorage(STORAGE_KEYS.EMPLOYEES, INITIAL_EMPLOYEES)
+  );
 
-  const [currentEmployee, setCurrentEmployee] = useState<Employee | null>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.CURRENT_EMP);
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [currentEmployee, setCurrentEmployee] = useState<Employee | null>(() =>
+    safeLoadFromStorage<Employee | null>(STORAGE_KEYS.CURRENT_EMP, null)
+  );
 
-  const [ingredients, setIngredients] = useState<Ingredient[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.INGREDIENTS);
-    return saved ? JSON.parse(saved) : INITIAL_INGREDIENTS;
-  });
+  const [ingredients, setIngredients] = useState<Ingredient[]>(() =>
+    safeLoadFromStorage(STORAGE_KEYS.INGREDIENTS, INITIAL_INGREDIENTS)
+  );
 
-  const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
-    return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
-  });
+  const [products, setProducts] = useState<Product[]>(() =>
+    safeLoadFromStorage(STORAGE_KEYS.PRODUCTS, INITIAL_PRODUCTS)
+  );
 
-  const [packaging, setPackaging] = useState<PackagingCosts>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.PACKAGING);
-    return saved ? JSON.parse(saved) : INITIAL_PACKAGING;
-  });
+  const [packaging, setPackaging] = useState<PackagingCosts>(() =>
+    safeLoadFromStorage(STORAGE_KEYS.PACKAGING, INITIAL_PACKAGING)
+  );
 
-  const [businessParams, setBusinessParams] = useState<BusinessParameters>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.PARAMS);
-    return saved ? JSON.parse(saved) : INITIAL_BUSINESS_PARAMS;
-  });
+  const [businessParams, setBusinessParams] = useState<BusinessParameters>(() =>
+    safeLoadFromStorage(STORAGE_KEYS.PARAMS, INITIAL_BUSINESS_PARAMS)
+  );
 
-  const [priceHistory, setPriceHistory] = useState<IngredientPriceHistory[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.PRICE_HISTORY);
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [priceHistory, setPriceHistory] = useState<IngredientPriceHistory[]>(() =>
+    safeLoadFromStorage(STORAGE_KEYS.PRICE_HISTORY, [])
+  );
 
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS);
-    return saved ? JSON.parse(saved) : INITIAL_AUDIT_LOGS;
-  });
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() =>
+    safeLoadFromStorage(STORAGE_KEYS.AUDIT_LOGS, INITIAL_AUDIT_LOGS)
+  );
 
-  const [transactions, setTransactions] = useState<SalesTransaction[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [transactions, setTransactions] = useState<SalesTransaction[]>(() =>
+    safeLoadFromStorage(STORAGE_KEYS.TRANSACTIONS, [])
+  );
 
   const [activeAlert, setActiveAlert] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);

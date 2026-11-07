@@ -8,6 +8,7 @@ import { IngredientMaster } from './components/owner/IngredientMaster';
 import { PackagingConfigCard } from './components/owner/PackagingConfigCard';
 import { EmployeeManagementCard } from './components/owner/EmployeeManagementCard';
 import { AuditLogView } from './components/owner/AuditLogView';
+import { FinanceView } from './components/owner/FinanceView';
 import { CashierMain } from './components/pos/CashierMain';
 import { AlertBanner } from './components/common/AlertBanner';
 import {
@@ -203,62 +204,7 @@ export const AppContent: React.FC = () => {
           )}
 
           {currentPage === 'finance' && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between pb-2">
-                <div>
-                  <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">
-                    Keuangan
-                  </h1>
-                  <p className="text-xs text-[#64748B] mt-1 font-medium">
-                    Ringkasan penjualan harian, pengeluaran operasional, dan tutup kas
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsOwnerTestingCashier(true)}
-                  className="h-9 px-4 rounded-xl border border-[#E2DFD7] bg-white text-xs font-semibold text-[#1B2A5C] hover:bg-[#FAF8F4] flex items-center gap-2 transition-colors shadow-xs"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Buka Kasir POS</span>
-                </button>
-              </div>
-
-              {/* Ringkasan Keuangan Sederhana */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white p-5 rounded-2xl border border-[#E6E4DD] shadow-xs">
-                  <div className="text-[11px] font-bold uppercase text-[#64748B] tracking-wider">
-                    Total Omzet
-                  </div>
-                  <div className="text-2xl font-bold text-[#1B2A5C] mt-2 font-mono">
-                    Rp1.150.000
-                  </div>
-                </div>
-                <div className="bg-white p-5 rounded-2xl border border-[#E6E4DD] shadow-xs">
-                  <div className="text-[11px] font-bold uppercase text-[#64748B] tracking-wider">
-                    Total HPP
-                  </div>
-                  <div className="text-2xl font-bold text-[#1B2A5C] mt-2 font-mono">
-                    Rp483.000
-                  </div>
-                </div>
-                <div className="bg-white p-5 rounded-2xl border border-[#E6E4DD] shadow-xs">
-                  <div className="text-[11px] font-bold uppercase text-[#64748B] tracking-wider">
-                    Pengeluaran
-                  </div>
-                  <div className="text-2xl font-bold text-[#1B2A5C] mt-2 font-mono">
-                    Rp150.000
-                  </div>
-                </div>
-                <div className="bg-white p-5 rounded-2xl border border-[#E6E4DD] shadow-xs">
-                  <div className="text-[11px] font-bold uppercase text-[#64748B] tracking-wider">
-                    Laba Bersih
-                  </div>
-                  <div className="text-2xl font-bold text-emerald-600 mt-2 font-mono">
-                    Rp517.000
-                  </div>
-                </div>
-              </div>
-            </div>
+            <FinanceView onOpenCashier={() => setIsOwnerTestingCashier(true)} />
           )}
 
           {currentPage === 'analysis' && (

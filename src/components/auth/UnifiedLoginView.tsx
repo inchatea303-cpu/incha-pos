@@ -12,9 +12,16 @@ import {
   ArrowRight,
   Sparkles,
   KeyRound,
+  ExternalLink,
+  Settings,
 } from 'lucide-react';
 import { authService, LoginResult } from '../../utils/authService';
 import { OwnerAccount } from '../../types';
+import {
+  sendRealOtpEmail,
+  getStoredResendApiKey,
+  setStoredResendApiKey,
+} from '../../utils/emailOtpService';
 
 interface UnifiedLoginViewProps {
   onOwnerLoginSuccess: (owner: OwnerAccount) => void;
@@ -62,6 +69,11 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
   const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotFeedback, setForgotFeedback] = useState<{ success: boolean; message: string } | null>(null);
+
+  // State Resend API Key (Kirim Email Riil)
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState(() => getStoredResendApiKey());
+  const [apiKeySavedSuccess, setApiKeySavedSuccess] = useState(false);
 
   // Handle keyboard typing untuk PIN saat di tab kasir
   useEffect(() => {
@@ -119,8 +131,8 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     setCashierError(null);
   };
 
-  // Handler Submit Admin / Pemilik - Langkah 1: Kredensial -> Minta OTP
-  const handleAdminRequestOtp = (e: React.FormEvent) => {
+  // Handler Submit Admin / Pemilik - Langkah 1: Kredensial -> Minta OTP Riil
+  const handleAdminRequestOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isLoading) return;
 
@@ -128,20 +140,31 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     setAdminSuccess(null);
     setIsLoading(true);
 
-    setTimeout(() => {
-      const result = authService.requestLoginOtp(adminEmail, adminPassword, new Date());
+    const result = authService.requestLoginOtp(adminEmail, adminPassword, new Date());
+    if (!result.success || !result.otp) {
       setIsLoading(false);
+      setAdminError(result.error || 'Email atau password pemilik salah.');
+      return;
+    }
 
-      if (result.success && result.otp) {
-        setActiveOtp(result.otp);
-        setOtpInput('');
-        setAdminStep('otp');
-        setResendCountdown(60);
-        setAdminSuccess(`Kode verifikasi OTP telah dikirimkan ke email ${adminEmail}.`);
-      } else {
-        setAdminError(result.error || 'Email atau password pemilik salah.');
-      }
-    }, 350);
+    setActiveOtp(result.otp);
+    setOtpInput('');
+    setAdminStep('otp');
+    setResendCountdown(60);
+
+    // Kirim email nyata ke inbox Gmail via API Resend
+    const sendResult = await sendRealOtpEmail(adminEmail, result.otp, 'Jayden');
+    setIsLoading(false);
+
+    if (sendResult.success) {
+      setAdminSuccess(`Kode OTP asli telah terkirim ke inbox ${adminEmail}! Silakan cek aplikasi Gmail Anda.`);
+    } else if (sendResult.needApiKey) {
+      setAdminSuccess(`Kode OTP aktif: ${result.otp}`);
+      // Munculkan opsi konfigurasi API Key jika belum disetel
+      setIsApiKeyModalOpen(true);
+    } else {
+      setAdminError(sendResult.error || 'Gagal mengirim email.');
+    }
   };
 
   // Handler Submit Admin / Pemilik - Langkah 2: Verifikasi 6 Digit OTP
@@ -169,18 +192,32 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     }, 300);
   };
 
-  // Kirim Ulang OTP
-  const handleResendOtp = () => {
+  // Kirim Ulang OTP Riil
+  const handleResendOtp = async () => {
     if (resendCountdown > 0) return;
+    setIsLoading(true);
+    setAdminError(null);
+
     const result = authService.requestLoginOtp(adminEmail, adminPassword, new Date());
     if (result.success && result.otp) {
       setActiveOtp(result.otp);
       setOtpInput('');
       setResendCountdown(60);
-      setAdminSuccess(`Kode OTP baru telah dibuat dan dikirim ke ${adminEmail}.`);
-      setAdminError(null);
+
+      const sendResult = await sendRealOtpEmail(adminEmail, result.otp, 'Jayden');
+      setIsLoading(false);
+
+      if (sendResult.success) {
+        setAdminSuccess(`Kode OTP baru telah berhasil dikirim ke inbox ${adminEmail}!`);
+      } else if (sendResult.needApiKey) {
+        setAdminSuccess(`Kode OTP baru: ${result.otp}`);
+        setIsApiKeyModalOpen(true);
+      } else {
+        setAdminError(sendResult.error || 'Gagal mengirim ulang email OTP.');
+      }
     } else {
-      setAdminError(result.error || 'Gagal mengirim ulang OTP.');
+      setIsLoading(false);
+      setAdminError(result.error || 'Gagal membuat kode OTP baru.');
     }
   };
 
@@ -517,23 +554,42 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                   />
                 </div>
 
-                {/* Helper Kode OTP Aktif */}
-                {activeOtp && (
-                  <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-between">
-                    <span className="flex items-center gap-1.5 font-medium">
-                      <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                      <span>Kode Keamanan:</span>
+                {/* Status Pengiriman Email Riil */}
+                <div className="p-3 rounded-xl bg-[#FAF8F4] border border-[#E6E4DD] text-xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-[#1B2A5C] flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Pengiriman ke Inbox Gmail:</span>
                     </span>
                     <button
                       type="button"
-                      onClick={() => setOtpInput(activeOtp)}
-                      className="font-mono font-bold text-amber-900 bg-white px-2 py-0.5 rounded-md border border-amber-300 hover:bg-amber-100 transition-colors shadow-2xs"
-                      title="Klik untuk mengisi otomatis kode ini"
+                      onClick={() => setIsApiKeyModalOpen(true)}
+                      className="text-[11px] font-bold text-blue-700 hover:text-blue-900 underline flex items-center gap-1"
                     >
-                      {activeOtp} (Klik Isi)
+                      <Settings className="w-3 h-3" />
+                      <span>{getStoredResendApiKey() ? 'API Key Aktif' : 'Atur API Key'}</span>
                     </button>
                   </div>
-                )}
+
+                  {getStoredResendApiKey() ? (
+                    <div className="text-[11px] text-emerald-700 font-medium flex items-center gap-1.5">
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Email OTP dikirim langsung ke <strong>{adminEmail}</strong> via Resend.</span>
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-amber-800 bg-amber-50 p-2 rounded-lg border border-amber-200">
+                      <span>Untuk menerima email langsung di aplikasi Gmail Anda tanpa diblokir Google, </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsApiKeyModalOpen(true)}
+                        className="font-bold underline text-amber-900"
+                      >
+                        masukkan Resend API Key gratis di sini
+                      </button>
+                      . Sementara itu, kode verifikasi Anda: <strong className="font-mono text-base ml-1">{activeOtp}</strong>
+                    </div>
+                  )}
+                </div>
 
                 {/* Tombol Verifikasi & Masuk */}
                 <div className="pt-1 space-y-2">
@@ -636,6 +692,100 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Pengaturan Pengiriman Email Asli (Resend API Key) */}
+      {isApiKeyModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="bg-white w-full max-w-[420px] rounded-2xl border border-[#E6E4DD] p-6 space-y-4 shadow-xl select-text">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center shrink-0">
+                <Mail className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-[#1B2A5C]">
+                  Kirim Kode OTP Riil ke Gmail
+                </h3>
+                <p className="text-[11px] text-[#64748B]">Terkirim ke: inchatea303@gmail.com</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-[#5B6478] leading-relaxed">
+              Google (Gmail) mewajibkan otentikasi resmi anti-spam untuk menerima email dari aplikasi. Anda cukup membuat <strong>Resend API Key gratis</strong> (3.000 email/bulan bebas biaya) agar kode OTP mendarat di aplikasi Gmail Anda:
+            </p>
+
+            <div className="bg-[#FAF8F4] p-3 rounded-xl border border-[#E6E4DD] text-xs space-y-2 text-[#1F2937]">
+              <div className="font-semibold text-[#1B2A5C] flex items-center gap-1.5">
+                <span>Langkah Cepat (1 Menit):</span>
+              </div>
+              <ol className="list-decimal list-inside space-y-1 text-[11px] text-[#64748B]">
+                <li>
+                  Buka{' '}
+                  <a
+                    href="https://resend.com/signup"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-600 font-bold underline inline-flex items-center gap-0.5"
+                  >
+                    <span>resend.com/signup</span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>{' '}
+                  dan login via Google (<strong className="text-[#1B2A5C]">inchatea303@gmail.com</strong>).
+                </li>
+                <li>Masuk menu <strong>API Keys</strong> &gt; klik <strong>Create API Key</strong>.</li>
+                <li>Salin kuncinya (diawali <code className="bg-gray-200 px-1 rounded text-[#1B2A5C]">re_...</code>) lalu tempel di bawah:</li>
+              </ol>
+            </div>
+
+            {apiKeySavedSuccess && (
+              <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 shrink-0" />
+                <span>API Key berhasil disimpan! Email OTP riil siap dikirim.</span>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-[#64748B] mb-1">
+                  Resend API Key:
+                </label>
+                <input
+                  type="text"
+                  placeholder="re_123456789_abcdef..."
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  className="w-full h-10 px-3 bg-white border border-[#E2DFD7] rounded-xl text-xs font-mono text-[#1B2A5C] focus:outline-none focus:border-[#1B2A5C]"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setIsApiKeyModalOpen(false)}
+                  className="flex-1 h-10 rounded-xl bg-[#FAF8F4] hover:bg-[#F1EFEA] text-xs font-semibold text-[#64748B] transition-colors"
+                >
+                  Tutup
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setStoredResendApiKey(apiKeyInput);
+                    setApiKeySavedSuccess(true);
+                    setTimeout(() => {
+                      setIsApiKeyModalOpen(false);
+                      setApiKeySavedSuccess(false);
+                      handleResendOtp();
+                    }, 800);
+                  }}
+                  disabled={!apiKeyInput.trim()}
+                  className="flex-1 h-10 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-xs font-bold text-white transition-colors shadow-xs"
+                >
+                  Simpan & Kirim OTP Riil
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -12,6 +12,7 @@ import { SalesTransaction } from '../../types';
 import {
   bluetoothPrinter,
   generateReceiptText,
+  printViaRawBT,
 } from '../../utils/bluetoothPrinter';
 import { formatRupiah, formatDateWIB } from '../../utils/calculations';
 
@@ -208,17 +209,25 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               className="h-12 rounded-xl bg-[#1B2A5C] hover:bg-[#243775] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow transition-all active:scale-95"
             >
               <Printer className="w-4 h-4" />
-              <span>Cetak Struk (BT)</span>
+              <span>Cetak Bluetooth</span>
             </button>
 
             <button
               type="button"
-              onClick={() => window.print()}
+              onClick={() => {
+                const isAndroid = /android/i.test(navigator.userAgent);
+                if (isAndroid) {
+                  // Jika di android, coba lempar ke RawBT bila terpasang
+                  printViaRawBT(transaction);
+                } else {
+                  window.print();
+                }
+              }}
               className="h-12 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95"
-              title="Cetak lewat driver printer Windows / USB"
+              title="Cetak lewat driver printer Windows / kabel USB / RawBT tanpa risiko disconnect"
             >
-              <Printer className="w-4 h-4 text-gray-600" />
-              <span>Cetak via Windows</span>
+              <Printer className="w-4 h-4 text-emerald-700" />
+              <span>Cetak USB / Spooler</span>
             </button>
           </div>
 

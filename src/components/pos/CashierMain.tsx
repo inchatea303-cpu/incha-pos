@@ -294,9 +294,11 @@ export const CashierMain: React.FC = () => {
       {/* 2. Cashier Header Info */}
       <div className="bg-[#131E42] text-white px-4 py-3 flex items-center justify-between border-b border-[#243775]">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-white">
-            <Store className="w-4 h-4" />
-          </div>
+          <img
+            src="/incha-emblem.png"
+            alt="INCHA"
+            className="w-8 h-8 rounded-full border border-white/30 shrink-0 object-cover shadow-xs"
+          />
           <div>
             <div className="font-bold text-sm text-white leading-tight">
               Kasir Toko (POS)

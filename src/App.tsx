@@ -62,9 +62,11 @@ export const AppContent: React.FC = () => {
         {/* Header Bersih & Modern Khusus Kasir */}
         <header className="bg-[#1B2A5C] text-white px-4 sm:px-6 py-3 flex items-center justify-between shadow-md border-b border-[#243775]">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-white text-[#1B2A5C] font-bold text-base flex items-center justify-center shadow-xs shrink-0">
-              IN
-            </div>
+            <img
+              src="/incha-emblem.png"
+              alt="INCHA"
+              className="w-9 h-9 rounded-full border border-white/30 shrink-0 object-cover shadow-xs"
+            />
             <div>
               <div className="text-sm font-bold text-white tracking-tight leading-tight flex items-center gap-2">
                 <span>INCHA Karang Tengah</span>

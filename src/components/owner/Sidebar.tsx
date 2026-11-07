@@ -57,9 +57,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div>
         {/* Brand Header */}
         <div className="h-16 flex items-center px-4 md:px-5 border-b border-[#243775] gap-3">
-          <div className="w-8 h-8 rounded-lg bg-white text-[#1B2A5C] font-bold text-sm flex items-center justify-center shrink-0">
-            IN
-          </div>
+          <img
+            src="/incha-emblem.png"
+            alt="INCHA"
+            className="w-8 h-8 rounded-full border border-white/30 shrink-0 object-cover shadow-xs"
+          />
           <div className="hidden md:block overflow-hidden">
             <div className="font-semibold text-sm tracking-wide text-white leading-tight">
               INCHA

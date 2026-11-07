@@ -1,7 +1,8 @@
-const CACHE_NAME = 'incha-pos-v3';
+const CACHE_NAME = 'incha-pos-v4';
 const ASSETS_TO_CACHE = [
   '/manifest.json',
-  '/incha-logo.svg',
+  '/incha-emblem.png',
+  '/incha-brand.jpg',
 ];
 
 self.addEventListener('install', (event) => {

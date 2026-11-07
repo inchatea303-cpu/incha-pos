@@ -141,8 +141,12 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
       <div className="w-full max-w-[420px] bg-white rounded-2xl border border-[#E6E4DD] shadow-xl shadow-black/[0.03] p-7 sm:p-8 relative z-10 transition-all">
         {/* Brand Header */}
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[#1B2A5C] text-white font-bold text-2xl shadow-md shadow-[#1B2A5C]/20 mb-3 border border-[#243775]">
-            IN
+          <div className="relative inline-block mb-3">
+            <img
+              src="/incha-emblem.png"
+              alt="INCHA Logo"
+              className="w-16 h-16 rounded-full mx-auto shadow-md border-2 border-white ring-2 ring-[#D7262E]/30 object-cover"
+            />
           </div>
           <h1 className="text-xl sm:text-2xl font-bold text-[#1B2A5C] tracking-tight">
             INCHA Karang Tengah

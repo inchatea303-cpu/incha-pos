@@ -53,9 +53,11 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="min-h-screen bg-[#FAF8F4] flex flex-col items-center justify-center p-6 font-sans select-none text-[#1B2A5C]">
           <div className="w-full max-w-md bg-white rounded-xl border border-[#E6E9F2] p-8 text-center space-y-4 shadow-none">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-[#1B2A5C] text-white font-bold text-xl mb-1">
-              IN
-            </div>
+            <img
+              src="/incha-emblem.png"
+              alt="INCHA"
+              className="w-14 h-14 rounded-full mx-auto shadow-md border-2 border-white mb-2 object-cover"
+            />
             <h1 className="text-xl font-semibold tracking-tight text-[#1B2A5C]">
               Pembaruan Sistem INCHA
             </h1>

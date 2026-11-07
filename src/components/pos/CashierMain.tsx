@@ -829,6 +829,17 @@ export const CashierMain: React.FC = () => {
               </button>
             )}
 
+            {(btStatus.includes('-1') || btStatus.includes('terkunci') || btStatus.includes('timeout')) && (
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-800 space-y-1">
+                <div className="font-bold flex items-center gap-1.5 text-amber-900">
+                  <span>💡 Tips Printer RPP02N Sibuk:</span>
+                </div>
+                <p className="text-[11px] leading-relaxed">
+                  Printer thermal hanya bisa terhubung ke 1 aplikasi. Matikan tombol power printer RPP02N selama 3 detik lalu nyalakan kembali, dan pastikan aplikasi RawBT ditutup agar koneksi Bluetooth tidak rebutan.
+                </p>
+              </div>
+            )}
+
             <div className="space-y-2">
               <button
                 type="button"

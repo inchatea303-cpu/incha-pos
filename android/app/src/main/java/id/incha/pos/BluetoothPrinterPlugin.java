@@ -136,7 +136,7 @@ public class BluetoothPrinterPlugin extends Plugin {
         try {
             BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
             if (adapter == null || !adapter.isEnabled()) {
-                call.reject("Bluetooth tidak aktif.");
+                call.reject("Bluetooth tidak aktif di tablet/HP. Silakan nyalakan Bluetooth.");
                 return;
             }
 
@@ -144,28 +144,83 @@ public class BluetoothPrinterPlugin extends Plugin {
             disconnectInternal();
 
             BluetoothDevice device = adapter.getRemoteDevice(address);
-            adapter.cancelDiscovery();
+            if (adapter.isDiscovering()) {
+                adapter.cancelDiscovery();
+            }
+
+            // Beri jeda 200ms agar stack Bluetooth Android stabil
+            try { Thread.sleep(200); } catch (Exception ignored) {}
 
             BluetoothSocket socket = null;
+            Exception lastError = null;
+
+            // METODE 1: Insecure RFCOMM Socket (Standar mutlak untuk printer thermal Bluetooth seperti RPP02N)
             try {
-                socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
+                Log.d(TAG, "Mencoba Metode 1: createInsecureRfcommSocketToServiceRecord...");
+                socket = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID);
                 socket.connect();
-            } catch (Exception ex1) {
-                Log.w(TAG, "Standard SPP connection failed, fallback to reflection socket...", ex1);
+            } catch (Exception e1) {
+                lastError = e1;
+                Log.w(TAG, "Metode 1 (Insecure SPP) gagal: " + e1.getMessage());
+                try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+                socket = null;
+            }
+
+            // METODE 2: Insecure RFCOMM Channel 1 via Reflection
+            if (socket == null || !socket.isConnected()) {
                 try {
+                    Log.d(TAG, "Mencoba Metode 2: createInsecureRfcommSocket Channel 1...");
+                    Method m = device.getClass().getMethod("createInsecureRfcommSocket", new Class[] { int.class });
+                    socket = (BluetoothSocket) m.invoke(device, 1);
+                    if (socket != null) {
+                        socket.connect();
+                    }
+                } catch (Exception e2) {
+                    lastError = e2;
+                    Log.w(TAG, "Metode 2 (Insecure Channel 1) gagal: " + e2.getMessage());
+                    try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+                    socket = null;
+                }
+            }
+
+            // METODE 3: Secure RFCOMM SPP (Fallback)
+            if (socket == null || !socket.isConnected()) {
+                try {
+                    Log.d(TAG, "Mencoba Metode 3: createRfcommSocketToServiceRecord...");
+                    socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
+                    socket.connect();
+                } catch (Exception e3) {
+                    lastError = e3;
+                    Log.w(TAG, "Metode 3 (Secure SPP) gagal: " + e3.getMessage());
+                    try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+                    socket = null;
+                }
+            }
+
+            // METODE 4: Secure RFCOMM Channel 1 via Reflection
+            if (socket == null || !socket.isConnected()) {
+                try {
+                    Log.d(TAG, "Mencoba Metode 4: createRfcommSocket Channel 1...");
                     Method m = device.getClass().getMethod("createRfcommSocket", new Class[] { int.class });
                     socket = (BluetoothSocket) m.invoke(device, 1);
                     if (socket != null) {
                         socket.connect();
                     }
-                } catch (Exception ex2) {
-                    call.reject("Gagal tersambung ke printer: " + ex2.getMessage());
-                    return;
+                } catch (Exception e4) {
+                    lastError = e4;
+                    Log.w(TAG, "Metode 4 (Secure Channel 1) gagal: " + e4.getMessage());
+                    try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+                    socket = null;
                 }
             }
 
             if (socket == null || !socket.isConnected()) {
-                call.reject("Tidak dapat membuka jalur koneksi ke printer.");
+                String errorMsg = lastError != null ? lastError.getMessage() : "Koneksi ditolak.";
+                if (errorMsg.contains("-1") || errorMsg.contains("closed") || errorMsg.contains("timeout")) {
+                    call.reject("Printer RPP02N sedang terkunci oleh aplikasi lain (seperti RawBT) atau printer perlu di-restart. Matikan saklar power printer lalu hidupkan lagi, kemudian klik Sambungkan.");
+                } else {
+                    call.reject("Gagal tersambung ke printer: " + errorMsg);
+                }
                 return;
             }
 
@@ -201,13 +256,15 @@ public class BluetoothPrinterPlugin extends Plugin {
                 try {
                     BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
                     BluetoothDevice device = adapter.getRemoteDevice(connectedAddress);
-                    adapter.cancelDiscovery();
-                    BluetoothSocket socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
+                    if (adapter.isDiscovering()) {
+                        adapter.cancelDiscovery();
+                    }
+                    BluetoothSocket socket = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID);
                     socket.connect();
                     connectedSocket = socket;
                     outputStream = socket.getOutputStream();
                 } catch (Exception reErr) {
-                    call.reject("Printer terputus. Buka pengaturan untuk menyambungkan printer.");
+                    call.reject("Printer terputus. Nyalakan printer dan klik Sambungkan.");
                     return;
                 }
             } else {

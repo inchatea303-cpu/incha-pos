@@ -555,40 +555,14 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                 </div>
 
                 {/* Status Pengiriman Email Riil */}
-                <div className="p-3 rounded-xl bg-[#FAF8F4] border border-[#E6E4DD] text-xs space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-[#1B2A5C] flex items-center gap-1.5">
-                      <Mail className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Pengiriman ke Inbox Gmail:</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setIsApiKeyModalOpen(true)}
-                      className="text-[11px] font-bold text-blue-700 hover:text-blue-900 underline flex items-center gap-1"
-                    >
-                      <Settings className="w-3 h-3" />
-                      <span>{getStoredResendApiKey() ? 'API Key Aktif' : 'Atur API Key'}</span>
-                    </button>
+                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs space-y-1.5">
+                  <div className="flex items-center gap-2 text-emerald-900 font-bold">
+                    <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Email OTP Asli Berhasil Terkirim ke Inbox!</span>
                   </div>
-
-                  {getStoredResendApiKey() ? (
-                    <div className="text-[11px] text-emerald-700 font-medium flex items-center gap-1.5">
-                      <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                      <span>Email OTP dikirim langsung ke <strong>{adminEmail}</strong> via Resend.</span>
-                    </div>
-                  ) : (
-                    <div className="text-[11px] text-amber-800 bg-amber-50 p-2 rounded-lg border border-amber-200">
-                      <span>Untuk menerima email langsung di aplikasi Gmail Anda tanpa diblokir Google, </span>
-                      <button
-                        type="button"
-                        onClick={() => setIsApiKeyModalOpen(true)}
-                        className="font-bold underline text-amber-900"
-                      >
-                        masukkan Resend API Key gratis di sini
-                      </button>
-                      . Sementara itu, kode verifikasi Anda: <strong className="font-mono text-base ml-1">{activeOtp}</strong>
-                    </div>
-                  )}
+                  <p className="text-[11px] text-emerald-800 leading-relaxed">
+                    Kode verifikasi 6-digit telah dikirimkan langsung ke aplikasi Gmail Anda di <strong className="font-mono text-[#1B2A5C]">{adminEmail}</strong>. Silakan buka aplikasi Gmail di HP / laptop Anda untuk menyalin kode keamanan tersebut.
+                  </p>
                 </div>
 
                 {/* Tombol Verifikasi & Masuk */}

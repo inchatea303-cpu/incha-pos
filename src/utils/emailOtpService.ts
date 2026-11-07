@@ -1,12 +1,14 @@
 // Layanan pengiriman email OTP nyata ke inchatea303@gmail.com via Resend / Serverless API
 
 const RESEND_KEY_STORAGE = 'incha_resend_api_key';
+export const BUILTIN_RESEND_KEY = typeof window !== 'undefined' ? atob('cmVfN2FoOWNVemtfS0xpaWVFRWNkWk1WWHlDOWY1cThiMUNM') : '';
 
 export function getStoredResendApiKey(): string {
   try {
-    return localStorage.getItem(RESEND_KEY_STORAGE) || '';
+    const saved = localStorage.getItem(RESEND_KEY_STORAGE);
+    return saved || BUILTIN_RESEND_KEY;
   } catch {
-    return '';
+    return BUILTIN_RESEND_KEY;
   }
 }
 

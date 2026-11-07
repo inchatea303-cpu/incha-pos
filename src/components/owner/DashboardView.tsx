@@ -78,15 +78,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     );
   }, 0);
 
-  // Biaya tetap harian: (Sewa Rp1.500.000 + Lain Rp3.000.000) / 30 = Rp150.000 / hari
+  // Biaya tetap harian: Sewa Rp900.000 / 30 = Rp30.000 / hari (sudah termasuk listrik)
   const dailyFixedCost =
     (businessParams.rentMonthly + businessParams.otherFixedMonthly) /
     (businessParams.operationalDaysPerMonth || 30);
 
   const todayNetProfit = todayGross - todayEstimatedHpp - (todayCups > 0 ? dailyFixedCost : 0);
 
-  // Target Titik Impas Harian (BEP ~ 25 cup / hari)
-  const bepTargetCupsPerDay = 25;
+  // Target Titik Impas Harian (BEP ~ 4 cup / hari untuk menutup Rp30.000)
+  const bepTargetCupsPerDay = Math.max(4, Math.ceil(dailyFixedCost / 8000));
   const bepProgressPct = Math.min(
     100,
     Math.round((todayCups / bepTargetCupsPerDay) * 100)

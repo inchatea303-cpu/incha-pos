@@ -61,13 +61,13 @@ export const INITIAL_PACKAGING: PackagingCosts = {
 };
 
 export const INITIAL_BUSINESS_PARAMS: BusinessParameters = {
-  rentMonthly: 1500000, // Rp1.500.000 / bulan
-  otherFixedMonthly: 3000000, // Rp3.000.000 / bulan
-  operationalDaysPerMonth: 30, // 30 hari operasional
-  initialPackageCapital: 38000000, // Paket Rp38.000.000
+  rentMonthly: 900000, // Rp900.000 / bulan (Sewa tempat sudah include listrik)
+  otherFixedMonthly: 0, // Rp0 (Listrik sudah termasuk sewa)
+  operationalDaysPerMonth: 30, // 30 hari operasional (Rp30.000 / hari)
+  initialPackageCapital: 38000000, // Paket kemitraan Rp38.000.000
   initialDpPaid: 19000000, // DP Rp19.000.000
-  initialShippingCost: 2000000, // Ongkir Rp2.000.000 (setelah potongan)
-  ojolCommissionPct: 20, // 20% komisi ojol default (ASUMSI)
+  initialShippingCost: 2000000, // Ongkir Rp2.000.000
+  ojolCommissionPct: 20, // 20% komisi ojol default
 };
 
 export const INITIAL_INGREDIENTS: Ingredient[] = [

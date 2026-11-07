@@ -202,9 +202,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     safeLoadFromStorage(STORAGE_KEYS.PACKAGING, INITIAL_PACKAGING)
   );
 
-  const [businessParams, setBusinessParams] = useState<BusinessParameters>(() =>
-    safeLoadFromStorage(STORAGE_KEYS.PARAMS, INITIAL_BUSINESS_PARAMS)
-  );
+  const [businessParams, setBusinessParams] = useState<BusinessParameters>(() => {
+    const saved = safeLoadFromStorage(STORAGE_KEYS.PARAMS, INITIAL_BUSINESS_PARAMS);
+    if (saved.rentMonthly === 1500000 || saved.otherFixedMonthly === 3000000) {
+      return INITIAL_BUSINESS_PARAMS;
+    }
+    return saved;
+  });
 
   const [priceHistory, setPriceHistory] = useState<IngredientPriceHistory[]>(() =>
     safeLoadFromStorage(STORAGE_KEYS.PRICE_HISTORY, [])

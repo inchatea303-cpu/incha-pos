@@ -51,8 +51,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ onOpenCashier }) => {
       id: 'exp-1',
       date: new Date().toISOString().slice(0, 10),
       category: 'Biaya Tetap',
-      description: 'Alokasi Sewa Tempat Harian',
-      amount: 50000,
+      description: 'Sewa Tempat & Listrik (Rp900rb/bln)',
+      amount: 30000,
     },
     {
       id: 'exp-2',

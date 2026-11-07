@@ -140,54 +140,52 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
             <div className="border-b border-dashed border-gray-400 my-1.5" />
 
-            {/* Totals */}
+            {/* Totals Ringkas (Hemat Kertas) */}
             <div className="space-y-1 text-[11px]">
-              <div className="flex justify-between">
-                <span>Subtotal</span>
-                <span>{formatRupiah(transaction.totalGross)}</span>
-              </div>
               {transaction.totalDiscount > 0 && (
-                <div className="flex justify-between text-[#D7262E]">
-                  <span>Total Diskon</span>
-                  <span>-{formatRupiah(transaction.totalDiscount)}</span>
-                </div>
+                <>
+                  <div className="flex justify-between">
+                    <span>Subtotal</span>
+                    <span>{formatRupiah(transaction.totalGross)}</span>
+                  </div>
+                  <div className="flex justify-between text-[#D7262E]">
+                    <span>Diskon</span>
+                    <span>-{formatRupiah(transaction.totalDiscount)}</span>
+                  </div>
+                </>
               )}
               <div className="flex justify-between font-extrabold text-sm text-black pt-1 border-t border-gray-300">
                 <span>TOTAL</span>
                 <span>{formatRupiah(transaction.totalNet)}</span>
               </div>
-              <div className="flex justify-between text-[10px] text-gray-600 pt-0.5">
-                <span>Metode</span>
-                <span className="uppercase font-bold text-[#1B2A5C]">
-                  {transaction.paymentMethod}
-                </span>
-              </div>
               {transaction.paymentMethod === 'cash' &&
                 transaction.cashReceived !== undefined && (
                   <>
                     <div className="flex justify-between text-[10px] text-gray-600">
-                      <span>Tunai Diterima</span>
+                      <span>Tunai</span>
                       <span>{formatRupiah(transaction.cashReceived)}</span>
                     </div>
-                    <div className="flex justify-between text-[10px] font-bold text-black">
-                      <span>Kembalian</span>
-                      <span>{formatRupiah(transaction.cashChange || 0)}</span>
-                    </div>
+                    {(transaction.cashChange || 0) > 0 && (
+                      <div className="flex justify-between text-[10px] font-bold text-black">
+                        <span>Kembali</span>
+                        <span>{formatRupiah(transaction.cashChange || 0)}</span>
+                      </div>
+                    )}
                   </>
                 )}
               {transaction.paymentMethod === 'qris' && (
                 <div className="flex justify-between text-[10px] text-blue-700 font-bold">
-                  <span>Status Pembayaran</span>
-                  <span>LUNAS (QRIS)</span>
+                  <span>Bayar</span>
+                  <span>QRIS (LUNAS)</span>
                 </div>
               )}
             </div>
 
-            <div className="border-b border-dashed border-gray-400 my-2" />
-            <div className="text-center text-[10px] text-gray-500 leading-normal">
-              Terima Kasih Atas Kunjungan Anda!
+            <div className="border-b border-dashed border-gray-400 my-1.5" />
+            <div className="text-center text-[10px] text-gray-600 leading-normal">
+              Terima Kasih!
               <br />
-              IG: @incha.karangtengah
+              @incha.karangtengah
             </div>
           </div>
         </div>

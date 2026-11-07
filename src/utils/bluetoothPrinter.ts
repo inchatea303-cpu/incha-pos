@@ -431,26 +431,25 @@ export function generateReceiptText(transaction: SalesTransaction): string {
   }
 
   lines.push(divider);
-  lines.push(pad('Subtotal:', formatRupiah(transaction.totalGross)));
+  // Hemat kertas: jika tidak ada diskon, langsung tampilkan TOTAL saja tanpa subtotal ganda
   if (transaction.totalDiscount > 0) {
-    lines.push(pad('Total Diskon:', `-${formatRupiah(transaction.totalDiscount)}`));
+    lines.push(pad('Subtotal:', formatRupiah(transaction.totalGross)));
+    lines.push(pad('Diskon:', `-${formatRupiah(transaction.totalDiscount)}`));
   }
   lines.push(pad('TOTAL:', formatRupiah(transaction.totalNet)));
-  lines.push(pad('Metode Bayar:', transaction.paymentMethod.toUpperCase()));
 
   if (transaction.paymentMethod === 'cash') {
     if (transaction.cashReceived !== undefined) {
-      lines.push(pad('Tunai Diterima:', formatRupiah(transaction.cashReceived)));
-      lines.push(pad('Kembalian:', formatRupiah(transaction.cashChange || 0)));
+      lines.push(pad('Tunai:', formatRupiah(transaction.cashReceived)));
+      lines.push(pad('Kembali:', formatRupiah(transaction.cashChange || 0)));
     }
   } else if (transaction.paymentMethod === 'qris') {
-    lines.push(pad('Status Pembayaran:', 'LUNAS (QRIS)'));
+    lines.push(pad('Bayar:', 'QRIS (LUNAS)'));
   }
 
   lines.push(divider);
-  lines.push(center('Terima Kasih Atas Kunjungan'));
-  lines.push(center('IG: @incha.karangtengah'));
-  lines.push(center('Simpan Struk Sebagai Bukti'));
+  lines.push(center('Terima Kasih'));
+  lines.push(center('@incha.karangtengah'));
 
   return lines.join('\n');
 }
@@ -461,7 +460,8 @@ export function generateReceiptText(transaction: SalesTransaction): string {
  */
 export function printViaRawBT(transaction: SalesTransaction): boolean {
   try {
-    const text = generateReceiptText(transaction) + '\n\n\n\n\x1B\x6D';
+    // Ringkas spasi kertas akhir cukup 2 baris (hemat kertas)
+    const text = generateReceiptText(transaction) + '\n\n\x1B\x6D';
     const encoder = new TextEncoder();
     const bytes = encoder.encode(text);
     let binary = '';
@@ -469,7 +469,9 @@ export function printViaRawBT(transaction: SalesTransaction): boolean {
       binary += String.fromCharCode(bytes[i]);
     }
     const base64 = btoa(binary);
-    window.location.href = `rawbt:base64,${base64}`;
+
+    // Gunakan skema Android Intent resmi RawBT agar langsung dieksekusi tanpa dialog konfirmasi
+    window.location.href = `intent:base64,${base64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;`;
     return true;
   } catch (err) {
     console.warn('[RawBT] Gagal mengirim struk via RawBT:', err);

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShoppingBag,
   Plus,
@@ -77,6 +77,13 @@ export const CashierMain: React.FC = () => {
   const [btStatus, setBtStatus] = useState<string>(
     bluetoothPrinter.connected ? `Terhubung: ${bluetoothPrinter.name}` : 'Belum Terhubung'
   );
+
+  useEffect(() => {
+    const unsubscribe = bluetoothPrinter.onStatusChange((status) => {
+      setBtStatus(status);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Calculations for Cart
   const totalGross = cart.reduce((sum, it) => sum + it.unitPrice * it.quantity, 0);

@@ -19,6 +19,8 @@ export const ESC_POS = {
   // Standard Cash Drawer Kick Pulse (pin 2, 25 * 2ms = 50ms, 250 * 2ms = 500ms)
   OPEN_CASH_DRAWER: [ESC, 0x70, 0x00, 0x19, 0xFA],
   CUT_PAPER: [GS, 0x56, 0x41, 0x03],
+  // ESC/POS DLE EOT 1: Real-time printer status request (digunakan untuk keepalive anti-sleep)
+  STATUS_KEEPALIVE: [0x10, 0x04, 0x01],
 };
 
 export class BluetoothPrinterService {
@@ -26,13 +28,28 @@ export class BluetoothPrinterService {
   private characteristic: any = null;
   private isConnected: boolean = false;
   private printerName: string = '';
+  private heartbeatTimer: any = null;
+  private reconnecting: boolean = false;
+  private statusListeners: Array<(status: string, connected: boolean) => void> = [];
 
   get connected(): boolean {
-    return this.isConnected;
+    return this.isConnected && !!this.device?.gatt?.connected;
   }
 
   get name(): string {
     return this.printerName;
+  }
+
+  // Daftarkan listener status untuk sinkronisasi UI
+  onStatusChange(listener: (status: string, connected: boolean) => void): () => void {
+    this.statusListeners.push(listener);
+    return () => {
+      this.statusListeners = this.statusListeners.filter((l) => l !== listener);
+    };
+  }
+
+  private notify(status: string, connected: boolean) {
+    this.statusListeners.forEach((l) => l(status, connected));
   }
 
   // Cek apakah browser mendukung Web Bluetooth (hanya Android Chrome & Desktop Chrome dengan Bluetooth)
@@ -69,35 +86,40 @@ export class BluetoothPrinterService {
       this.device = device;
       this.printerName = device.name || 'Printer Bluetooth ESC/POS';
 
+      // Pasang event listener saat koneksi GATT terputus agar otomatis reconnect
+      device.addEventListener('gattserverdisconnected', () => {
+        console.warn('[BT] Koneksi Bluetooth terputus dari printer.');
+        this.isConnected = false;
+        this.characteristic = null;
+        this.stopHeartbeat();
+        this.notify(`Terputus dari ${this.printerName} (Mencoba sambung ulang...)`, false);
+        this.autoReconnect();
+      });
+
       const server = await device.gatt.connect();
 
       // Cari service & characteristic untuk menulis data
-      const services = await server.getPrimaryServices();
-      for (const service of services) {
-        try {
-          const characteristics = await service.getCharacteristics();
-          for (const char of characteristics) {
-            if (char.properties.write || char.properties.writeWithoutResponse) {
-              this.characteristic = char;
-              this.isConnected = true;
-              return {
-                success: true,
-                message: `Terhubung ke ${this.printerName}`,
-              };
-            }
-          }
-        } catch (e) {
-          continue;
-        }
+      const success = await this.discoverWritableCharacteristic(server);
+      if (success) {
+        this.isConnected = true;
+        this.startHeartbeat();
+        this.notify(`Terhubung: ${this.printerName}`, true);
+        return {
+          success: true,
+          message: `Terhubung ke ${this.printerName}`,
+        };
       }
 
       this.isConnected = true;
+      this.startHeartbeat();
+      this.notify(`Terhubung: ${this.printerName} (Mode Standar)`, true);
       return {
         success: true,
         message: `Terhubung ke ${this.printerName} (Mode Standar)`,
       };
     } catch (error: any) {
       this.isConnected = false;
+      this.notify(error.message || 'Gagal tersambung ke printer.', false);
       return {
         success: false,
         message: error.message || 'Gagal menyambungkan ke printer Bluetooth.',
@@ -105,9 +127,106 @@ export class BluetoothPrinterService {
     }
   }
 
+  // Cari characteristic yang bisa ditulis
+  private async discoverWritableCharacteristic(server: any): Promise<boolean> {
+    try {
+      const services = await server.getPrimaryServices();
+      for (const service of services) {
+        try {
+          const characteristics = await service.getCharacteristics();
+          for (const char of characteristics) {
+            if (char.properties.write || char.properties.writeWithoutResponse) {
+              this.characteristic = char;
+              return true;
+            }
+          }
+        } catch {
+          continue;
+        }
+      }
+      return false;
+    } catch (e) {
+      console.warn('[BT] Gagal mendeteksi characteristic:', e);
+      return false;
+    }
+  }
+
+  // Sambung ulang otomatis di latar belakang tanpa meminta dialog izin ulang
+  private async autoReconnect(retries: number = 3): Promise<boolean> {
+    if (this.reconnecting || !this.device?.gatt) return false;
+    this.reconnecting = true;
+
+    for (let i = 1; i <= retries; i++) {
+      try {
+        console.log(`[BT] Mencoba auto-reconnect ke ${this.printerName} (Percobaan ${i}/${retries})...`);
+        const server = await this.device.gatt.connect();
+        const found = await this.discoverWritableCharacteristic(server);
+        if (found) {
+          this.isConnected = true;
+          this.reconnecting = false;
+          this.startHeartbeat();
+          this.notify(`Terhubung kembali ke ${this.printerName}`, true);
+          return true;
+        }
+      } catch (err) {
+        console.warn(`[BT] Auto-reconnect percobaan ${i} gagal:`, err);
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
+
+    this.reconnecting = false;
+    this.notify(`Gagal tersambung kembali. Nyalakan printer dan klik Hubungkan.`, false);
+    return false;
+  }
+
+  // Pastikan koneksi aktif sebelum mengirim data (silent re-connection)
+  async ensureConnected(): Promise<boolean> {
+    if (this.isConnected && this.characteristic && this.device?.gatt?.connected) {
+      return true;
+    }
+    if (this.device?.gatt) {
+      console.log('[BT] Koneksi idle/terputus, menyambungkan ulang sebelum cetak...');
+      return await this.autoReconnect(2);
+    }
+    return false;
+  }
+
+  // Heartbeat keep-alive (setiap 25 detik mengirim pulse status ringan tanpa mencetak kertas)
+  // Mencegah chipset Bluetooth dan printer masuk ke mode deep sleep / sleep timer
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(async () => {
+      if (this.device?.gatt?.connected && this.characteristic) {
+        try {
+          // ESC/POS DLE EOT 1 - Perintah ringan cek status printer (tidak keluar kertas / tidak bunyi)
+          const ping = new Uint8Array(ESC_POS.STATUS_KEEPALIVE);
+          if (this.characteristic.properties.writeWithoutResponse) {
+            await this.characteristic.writeValueWithoutResponse(ping);
+          } else {
+            await this.characteristic.writeValue(ping);
+          }
+        } catch (e) {
+          console.warn('[BT] Heartbeat ping gagal, koneksi mungkin terputus:', e);
+          this.isConnected = false;
+          this.stopHeartbeat();
+          this.autoReconnect();
+        }
+      }
+    }, 25000);
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
   // Kirim data byte ke printer dengan throttling agar buffer printer tidak overflow
   async sendCommand(bytes: number[]): Promise<boolean> {
-    if (!this.characteristic) {
+    // Pastikan koneksi aktif dulu sebelum kirim (auto-reconnect jika sempat terputus)
+    const isReady = await this.ensureConnected();
+    if (!isReady || !this.characteristic) {
       console.warn('Printer tidak terhubung, perintah dicatat secara virtual.');
       return false;
     }
@@ -118,13 +237,20 @@ export class BluetoothPrinterService {
       const CHUNK_SIZE = 48;
       for (let i = 0; i < buffer.length; i += CHUNK_SIZE) {
         const chunk = buffer.slice(i, i + CHUNK_SIZE);
-        await this.characteristic.writeValue(chunk);
+        if (this.characteristic.properties.writeWithoutResponse) {
+          await this.characteristic.writeValueWithoutResponse(chunk);
+        } else {
+          await this.characteristic.writeValue(chunk);
+        }
         // Delay kecil agar mikrokontroler printer sempat mencetak dan mengosongkan buffer RX
         await new Promise((resolve) => setTimeout(resolve, 35));
       }
       return true;
     } catch (err) {
       console.error('Gagal mengirim data ke printer:', err);
+      // Jika terjadi error saat transfer, tandai koneksi dan coba pulihkan
+      this.isConnected = false;
+      this.autoReconnect(1);
       return false;
     }
   }
@@ -148,8 +274,9 @@ export class BluetoothPrinterService {
     // 1. Susun representasi teks struk (32 karakter per baris untuk kertas 58mm)
     const receiptText = generateReceiptText(transaction);
 
-    // 2. Jika ada perangkat Bluetooth, konversi ke perintah ESC/POS dan cetak
-    if (this.isConnected && this.characteristic) {
+    // 2. Pastikan koneksi Bluetooth tersambung
+    const isReady = await this.ensureConnected();
+    if (isReady && this.characteristic) {
       const encoder = new TextEncoder();
       const textBytes = Array.from(encoder.encode(receiptText + '\n\n\n\n'));
 
@@ -164,17 +291,18 @@ export class BluetoothPrinterService {
         ...ESC_POS.CUT_PAPER,
       ];
 
-      await this.sendCommand(commands);
-      return { success: true, receiptText };
+      const success = await this.sendCommand(commands);
+      return { success, receiptText };
     }
 
-    // Jika Bluetooth belum dipasangkan, tetap sukses secara virtual agar kasir dapat melihat preview
+    // Jika Bluetooth belum dipasangkan, tetap kirim representasi teks agar kasir dapat melihat preview
     return { success: false, receiptText };
   }
 
   // Tes Printer
   async printTest(): Promise<{ success: boolean; message: string }> {
-    if (!this.isConnected || !this.characteristic) {
+    const isReady = await this.ensureConnected();
+    if (!isReady || !this.characteristic) {
       return {
         success: false,
         message: 'Printer belum terhubung. Sambungkan printer Bluetooth terlebih dahulu.',
@@ -194,8 +322,13 @@ export class BluetoothPrinterService {
       ...ESC_POS.CUT_PAPER,
     ];
 
-    await this.sendCommand(testBytes);
-    return { success: true, message: 'Tes cetak berhasil dikirim ke printer.' };
+    const success = await this.sendCommand(testBytes);
+    return {
+      success,
+      message: success
+        ? 'Tes cetak berhasil dikirim ke printer.'
+        : 'Gagal mengirim data tes cetak ke printer.',
+    };
   }
 }
 

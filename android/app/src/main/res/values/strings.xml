@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">INCHA POS</string>
+    <string name="title_activity_main">INCHA POS</string>
+    <string name="package_name">id.incha.pos</string>
+    <string name="custom_url_scheme">id.incha.pos</string>
+</resources>

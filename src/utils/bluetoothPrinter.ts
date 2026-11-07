@@ -1,5 +1,22 @@
 import { SalesTransaction } from '../types';
 import { formatRupiah, formatDateWIB } from './calculations';
+import { Capacitor, registerPlugin } from '@capacitor/core';
+
+export interface NativeBTDevice {
+  name: string;
+  address: string;
+}
+
+export interface NativeBluetoothPrinterPlugin {
+  listPrinters(): Promise<{ printers: NativeBTDevice[] }>;
+  connect(options: { address: string }): Promise<{ success: boolean; name: string; address: string }>;
+  printBytes(options: { base64: string }): Promise<{ success: boolean }>;
+  isConnected(): Promise<{ connected: boolean; name?: string; address?: string }>;
+  disconnect(): Promise<{ success: boolean }>;
+}
+
+export const NativePrinter = registerPlugin<NativeBluetoothPrinterPlugin>('BluetoothPrinter');
+export const isNativeAndroidApp = () => Capacitor.isNativePlatform();
 
 // Standard ESC/POS Commands
 const ESC = 0x1B;
@@ -33,6 +50,9 @@ export class BluetoothPrinterService {
   private statusListeners: Array<(status: string, connected: boolean) => void> = [];
 
   get connected(): boolean {
+    if (isNativeAndroidApp()) {
+      return this.isConnected;
+    }
     return this.isConnected && !!this.device?.gatt?.connected;
   }
 
@@ -52,17 +72,55 @@ export class BluetoothPrinterService {
     this.statusListeners.forEach((l) => l(status, connected));
   }
 
-  // Cek apakah browser mendukung Web Bluetooth (hanya Android Chrome & Desktop Chrome dengan Bluetooth)
+  // Cek apakah browser / aplikasi mendukung Bluetooth
   isSupported(): boolean {
+    if (isNativeAndroidApp()) return true;
     return typeof navigator !== 'undefined' && 'bluetooth' in navigator;
   }
 
   // Sambungkan ke printer Bluetooth ESC/POS
   async connect(): Promise<{ success: boolean; message: string }> {
+    // JALUR 1: APLIKASI ANDROID NATIVE (ANTI-PUTUS)
+    if (isNativeAndroidApp()) {
+      try {
+        const { printers } = await NativePrinter.listPrinters();
+        if (!printers || printers.length === 0) {
+          return {
+            success: false,
+            message: 'Tidak ada printer Bluetooth yang terpasang (paired). Pasangkan RPP02N di menu Bluetooth HP terlebih dahulu.',
+          };
+        }
+
+        const savedAddr = localStorage.getItem('incha_native_bt_address');
+        const target = (savedAddr ? printers.find(p => p.address === savedAddr) : null)
+          || printers.find(p => /rpp|print|pos|bt/i.test(p.name))
+          || printers[0];
+
+        const res = await NativePrinter.connect({ address: target.address });
+        this.isConnected = true;
+        this.printerName = res.name || target.name;
+        localStorage.setItem('incha_native_bt_address', target.address);
+        localStorage.setItem('incha_bt_device_name', this.printerName);
+        this.notify(`Terhubung Native: ${this.printerName} (Anti-Putus)`, true);
+        return {
+          success: true,
+          message: `Terhubung Native: ${this.printerName} (Koneksi Langsung Anti-Putus)`,
+        };
+      } catch (err: any) {
+        this.isConnected = false;
+        this.notify(err.message || 'Gagal koneksi native Bluetooth.', false);
+        return {
+          success: false,
+          message: err.message || 'Gagal tersambung ke printer.',
+        };
+      }
+    }
+
+    // JALUR 2: BROWSER WEB BLUETOOTH
     if (!this.isSupported()) {
       return {
         success: false,
-        message: 'Web Bluetooth tidak didukung pada browser ini. Gunakan Google Chrome di Android.',
+        message: 'Web Bluetooth tidak didukung pada browser ini. Gunakan Google Chrome di Android atau buka via Aplikasi APK INCHA POS.',
       };
     }
 
@@ -138,6 +196,30 @@ export class BluetoothPrinterService {
 
   // Coba sambung otomatis di latar belakang saat halaman dimuat/refresh (tanpa popup izin)
   async tryAutoConnectOnLoad(): Promise<boolean> {
+    if (isNativeAndroidApp()) {
+      try {
+        const status = await NativePrinter.isConnected();
+        if (status.connected) {
+          this.isConnected = true;
+          this.printerName = status.name || 'Printer RPP02N';
+          this.notify(`Terhubung Native: ${this.printerName} (Anti-Putus)`, true);
+          return true;
+        }
+
+        const savedAddr = localStorage.getItem('incha_native_bt_address');
+        if (savedAddr) {
+          const res = await NativePrinter.connect({ address: savedAddr });
+          this.isConnected = true;
+          this.printerName = res.name || 'RPP02N';
+          this.notify(`Terhubung Native: ${this.printerName} (Anti-Putus)`, true);
+          return true;
+        }
+      } catch (e) {
+        console.warn('[BT Native] Auto-connect on load:', e);
+      }
+      return false;
+    }
+
     if (!this.isSupported() || this.isConnected) return false;
 
     try {
@@ -313,6 +395,19 @@ export class BluetoothPrinterService {
 
   // Buka Laci Kas (Cash Drawer Pulse)
   async openCashDrawer(): Promise<{ success: boolean; message: string }> {
+    if (isNativeAndroidApp()) {
+      try {
+        let binary = '';
+        for (let i = 0; i < ESC_POS.OPEN_CASH_DRAWER.length; i++) {
+          binary += String.fromCharCode(ESC_POS.OPEN_CASH_DRAWER[i]);
+        }
+        await NativePrinter.printBytes({ base64: btoa(binary) });
+        return { success: true, message: 'Perintah buka laci uang kasir terkirim (Native).' };
+      } catch (e: any) {
+        return { success: false, message: e.message || 'Gagal buka laci.' };
+      }
+    }
+
     const success = await this.sendCommand(ESC_POS.OPEN_CASH_DRAWER);
     return {
       success,
@@ -330,7 +425,34 @@ export class BluetoothPrinterService {
     // 1. Susun representasi teks struk (32 karakter per baris untuk kertas 58mm)
     const receiptText = generateReceiptText(transaction);
 
-    // 2. Pastikan koneksi Bluetooth tersambung
+    // JALUR 1: APLIKASI ANDROID NATIVE APK (ANTI-PUTUS)
+    if (isNativeAndroidApp()) {
+      try {
+        const encoder = new TextEncoder();
+        const textBytes = Array.from(encoder.encode(receiptText + '\n\n\x1B\x6D'));
+        const shouldOpenDrawer = openDrawerIfCash && transaction.paymentMethod === 'cash';
+
+        const commands = [
+          ...ESC_POS.INIT,
+          ...ESC_POS.ALIGN_LEFT,
+          ...textBytes,
+          ...(shouldOpenDrawer ? ESC_POS.OPEN_CASH_DRAWER : []),
+        ];
+
+        let binary = '';
+        for (let i = 0; i < commands.length; i++) {
+          binary += String.fromCharCode(commands[i]);
+        }
+
+        const res = await NativePrinter.printBytes({ base64: btoa(binary) });
+        return { success: res.success, receiptText };
+      } catch (err: any) {
+        console.warn('[BT Native Print] Gagal cetak native:', err);
+        return { success: false, receiptText };
+      }
+    }
+
+    // JALUR 2: WEB BROWSER
     const isReady = await this.ensureConnected();
     if (isReady && this.characteristic) {
       const encoder = new TextEncoder();
@@ -357,6 +479,34 @@ export class BluetoothPrinterService {
 
   // Tes Printer
   async printTest(): Promise<{ success: boolean; message: string }> {
+    if (isNativeAndroidApp()) {
+      try {
+        const encoder = new TextEncoder();
+        const testText = 'INCHA MILK TEA\nOutlet Karang Tengah\nTes Cetak Native Android OK!\nKoneksi Bluetooth Permanen\n\n\n\x1B\x6D';
+        const commands = [
+          ...ESC_POS.INIT,
+          ...ESC_POS.ALIGN_CENTER,
+          ...Array.from(encoder.encode(testText)),
+        ];
+
+        let binary = '';
+        for (let i = 0; i < commands.length; i++) {
+          binary += String.fromCharCode(commands[i]);
+        }
+
+        const res = await NativePrinter.printBytes({ base64: btoa(binary) });
+        return {
+          success: res.success,
+          message: 'Tes cetak native berhasil dikirim ke printer RPP02N.',
+        };
+      } catch (e: any) {
+        return {
+          success: false,
+          message: e.message || 'Gagal tes cetak native.',
+        };
+      }
+    }
+
     const isReady = await this.ensureConnected();
     if (!isReady || !this.characteristic) {
       return {

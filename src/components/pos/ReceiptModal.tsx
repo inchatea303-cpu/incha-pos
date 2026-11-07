@@ -13,6 +13,7 @@ import {
   bluetoothPrinter,
   generateReceiptText,
   printViaRawBT,
+  isNativeAndroidApp,
 } from '../../utils/bluetoothPrinter';
 import { formatRupiah, formatDateWIB } from '../../utils/calculations';
 
@@ -216,6 +217,26 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                     }
                   } catch (err: any) {
                     setPrintStatus('Error cetak: ' + err.message);
+                  } finally {
+                    setIsPrinting(false);
+                  }
+                  return;
+                }
+
+                if (isNativeAndroidApp()) {
+                  setIsPrinting(true);
+                  setPrintStatus('Mencetak langsung via Native Bluetooth (Anti-Putus)...');
+                  try {
+                    const res = await bluetoothPrinter.printReceipt(transaction);
+                    if (res.success) {
+                      setPrintStatus('Struk berhasil dicetak langsung!');
+                    } else {
+                      // Fallback coba RawBT jika socket belum pairing
+                      printViaRawBT(transaction);
+                      setPrintStatus('Mengirim ke printer...');
+                    }
+                  } catch (err: any) {
+                    setPrintStatus('Error cetak native: ' + err.message);
                   } finally {
                     setIsPrinting(false);
                   }

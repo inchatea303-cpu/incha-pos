@@ -9,6 +9,7 @@ import {
   User,
   LogOut,
   KeyRound,
+  Download,
 } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 
@@ -86,6 +87,17 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Right: Role Badge, Status, & Actions */}
           <div className="flex items-center gap-3">
+            {/* Tombol Unduh APK Android */}
+            <a
+              href="/incha-pos.apk"
+              download="incha-pos.apk"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow transition-all active:scale-95"
+              title="Unduh file APK Aplikasi Android Kasir INCHA POS (Koneksi Bluetooth Permanen)"
+            >
+              <Download className="w-4 h-4 text-white" />
+              <span className="hidden sm:inline">Unduh APK Android</span>
+            </a>
+
             {/* Online Indicator */}
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-[#131E42] border border-[#243775] text-gray-300">
               {isOnline ? (

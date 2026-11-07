@@ -35,6 +35,9 @@
     }
   },
   "dependencies": {
+    "@capacitor/android": "^6.2.3",
+    "@capacitor/cli": "^6.2.3",
+    "@capacitor/core": "^6.2.3",
     "clsx": "^2.1.1",
     "idb": "^8.0.0",
     "lucide-react": "^0.453.0",

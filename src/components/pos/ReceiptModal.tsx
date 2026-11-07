@@ -214,7 +214,26 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
             <button
               type="button"
-              onClick={() => {
+              onClick={async () => {
+                const electron = (window as any).electronAPI;
+                if (electron && typeof electron.printSilent === 'function') {
+                  setIsPrinting(true);
+                  setPrintStatus('Mencetak langsung ke printer kasir Windows...');
+                  try {
+                    const res = await electron.printSilent();
+                    if (res.success) {
+                      setPrintStatus('Struk berhasil dicetak langsung!');
+                    } else {
+                      setPrintStatus('Gagal cetak via desktop: ' + (res.error || 'Periksa printer Windows'));
+                    }
+                  } catch (err: any) {
+                    setPrintStatus('Error cetak: ' + err.message);
+                  } finally {
+                    setIsPrinting(false);
+                  }
+                  return;
+                }
+
                 const isAndroid = /android/i.test(navigator.userAgent);
                 if (isAndroid) {
                   // Jika di android, coba lempar ke RawBT bila terpasang

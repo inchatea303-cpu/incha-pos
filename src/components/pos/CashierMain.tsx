@@ -24,6 +24,7 @@ import {
   ArrowRight,
   ShieldCheck,
   Store,
+  Settings,
 } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
 import {
@@ -34,7 +35,12 @@ import {
   SalesTransaction,
 } from '../../types';
 import { formatRupiah, formatDateWIB } from '../../utils/calculations';
-import { bluetoothPrinter, printTestViaRawBT } from '../../utils/bluetoothPrinter';
+import {
+  bluetoothPrinter,
+  printTestViaRawBT,
+  isNativeAndroidApp,
+  openNativeAppSettings,
+} from '../../utils/bluetoothPrinter';
 import { ReceiptModal } from './ReceiptModal';
 import { CheckoutConfirmModal } from './CheckoutConfirmModal';
 
@@ -794,9 +800,15 @@ export const CashierMain: React.FC = () => {
             <div className="flex items-center gap-2">
               <Bluetooth className="w-5 h-5 text-[#1B2A5C]" />
               <div>
-                <h3 className="font-bold text-sm text-[#1B2A5C]">Printer Web Bluetooth (Jalur Alternatif)</h3>
+                <h3 className="font-bold text-sm text-[#1B2A5C]">
+                  {isNativeAndroidApp()
+                    ? 'Printer Bluetooth Native (Aplikasi Android APK)'
+                    : 'Printer Web Bluetooth (Jalur Alternatif)'}
+                </h3>
                 <p className="text-[11px] text-[#6B7280]">
-                  Koneksi manual langsung lewat browser
+                  {isNativeAndroidApp()
+                    ? 'Koneksi langsung sistem Android anti-putus (Tanpa RawBT)'
+                    : 'Koneksi manual langsung lewat browser'}
                 </p>
               </div>
             </div>
@@ -805,6 +817,17 @@ export const CashierMain: React.FC = () => {
               <div className="text-[11px] text-[#6B7280]">Status Perangkat:</div>
               <div className="font-bold text-sm text-[#1B2A5C] mt-0.5">{btStatus}</div>
             </div>
+
+            {btStatus.toLowerCase().includes('izin') && isNativeAndroidApp() && (
+              <button
+                type="button"
+                onClick={openNativeAppSettings}
+                className="w-full py-2.5 px-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow transition-all active:scale-95"
+              >
+                <Settings className="w-4 h-4" />
+                <span>Buka Pengaturan HP (Izinkan &quot;Perangkat di Sekitar&quot;)</span>
+              </button>
+            )}
 
             <div className="space-y-2">
               <button

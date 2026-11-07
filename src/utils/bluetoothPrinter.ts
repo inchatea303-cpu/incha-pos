@@ -13,10 +13,22 @@ export interface NativeBluetoothPrinterPlugin {
   printBytes(options: { base64: string }): Promise<{ success: boolean }>;
   isConnected(): Promise<{ connected: boolean; name?: string; address?: string }>;
   disconnect(): Promise<{ success: boolean }>;
+  requestBluetoothPermission(): Promise<{ granted: boolean }>;
+  openSettings(): Promise<{ success: boolean }>;
 }
 
 export const NativePrinter = registerPlugin<NativeBluetoothPrinterPlugin>('BluetoothPrinter');
 export const isNativeAndroidApp = () => Capacitor.isNativePlatform();
+
+export async function openNativeAppSettings() {
+  if (isNativeAndroidApp()) {
+    try {
+      await NativePrinter.openSettings();
+    } catch (e) {
+      console.warn('Gagal buka settings:', e);
+    }
+  }
+}
 
 // Standard ESC/POS Commands
 const ESC = 0x1B;
@@ -83,6 +95,13 @@ export class BluetoothPrinterService {
     // JALUR 1: APLIKASI ANDROID NATIVE (ANTI-PUTUS)
     if (isNativeAndroidApp()) {
       try {
+        // 1. Minta izin Bluetooth Android 12+ (BLUETOOTH_CONNECT & SCAN)
+        try {
+          await NativePrinter.requestBluetoothPermission();
+        } catch (pErr) {
+          console.warn('[BT Perm] Request error:', pErr);
+        }
+
         const { printers } = await NativePrinter.listPrinters();
         if (!printers || printers.length === 0) {
           return {

@@ -4,17 +4,22 @@ import android.Manifest;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Build;
+import android.provider.Settings;
 import android.util.Base64;
 import android.util.Log;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -47,6 +52,25 @@ public class BluetoothPrinterPlugin extends Plugin {
 
     @PluginMethod
     public void listPrinters(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (getPermissionState("bluetooth") != PermissionState.GRANTED) {
+                requestPermissionForAlias("bluetooth", call, "listPrintersCallback");
+                return;
+            }
+        }
+        executeListPrinters(call);
+    }
+
+    @PermissionCallback
+    private void listPrintersCallback(PluginCall call) {
+        if (getPermissionState("bluetooth") == PermissionState.GRANTED) {
+            executeListPrinters(call);
+        } else {
+            call.reject("Izin 'Perangkat di sekitar' ditolak. Silakan izinkan di Pengaturan HP agar printer bisa terhubung.");
+        }
+    }
+
+    private void executeListPrinters(PluginCall call) {
         try {
             BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
             if (adapter == null) {
@@ -55,7 +79,7 @@ public class BluetoothPrinterPlugin extends Plugin {
             }
 
             if (!adapter.isEnabled()) {
-                call.reject("Bluetooth tidak aktif. Silakan nyalakan Bluetooth terlebih dahulu.");
+                call.reject("Bluetooth tidak aktif. Silakan nyalakan Bluetooth HP terlebih dahulu.");
                 return;
             }
 
@@ -76,7 +100,7 @@ public class BluetoothPrinterPlugin extends Plugin {
             ret.put("printers", array);
             call.resolve(ret);
         } catch (SecurityException se) {
-            call.reject("Izin Bluetooth ditolak: " + se.getMessage());
+            call.reject("Izin Bluetooth ditolak sistem: " + se.getMessage());
         } catch (Exception e) {
             call.reject("Gagal mendapatkan daftar printer: " + e.getMessage());
         }
@@ -84,6 +108,25 @@ public class BluetoothPrinterPlugin extends Plugin {
 
     @PluginMethod
     public void connect(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (getPermissionState("bluetooth") != PermissionState.GRANTED) {
+                requestPermissionForAlias("bluetooth", call, "connectCallback");
+                return;
+            }
+        }
+        executeConnect(call);
+    }
+
+    @PermissionCallback
+    private void connectCallback(PluginCall call) {
+        if (getPermissionState("bluetooth") == PermissionState.GRANTED) {
+            executeConnect(call);
+        } else {
+            call.reject("Izin Bluetooth ditolak.");
+        }
+    }
+
+    private void executeConnect(PluginCall call) {
         String address = call.getString("address");
         if (address == null || address.trim().isEmpty()) {
             call.reject("Alamat printer tidak boleh kosong.");
@@ -202,6 +245,43 @@ public class BluetoothPrinterPlugin extends Plugin {
         JSObject ret = new JSObject();
         ret.put("success", true);
         call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void requestBluetoothPermission(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (getPermissionState("bluetooth") != PermissionState.GRANTED) {
+                requestPermissionForAlias("bluetooth", call, "permissionOnlyCallback");
+                return;
+            }
+        }
+        JSObject ret = new JSObject();
+        ret.put("granted", true);
+        call.resolve(ret);
+    }
+
+    @PermissionCallback
+    private void permissionOnlyCallback(PluginCall call) {
+        boolean granted = getPermissionState("bluetooth") == PermissionState.GRANTED;
+        JSObject ret = new JSObject();
+        ret.put("granted", granted);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void openSettings(PluginCall call) {
+        try {
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            Uri uri = Uri.fromParts("package", getActivity().getPackageName(), null);
+            intent.setData(uri);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getActivity().startActivity(intent);
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Gagal membuka pengaturan: " + e.getMessage());
+        }
     }
 
     private void disconnectInternal() {

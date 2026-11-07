@@ -1,17 +1,17 @@
 {
-  "name": "INCHA Kasir - Artisan Milk Tea",
-  "short_name": "INCHA Kasir",
-  "description": "Aplikasi Kasir POS & Inventaris INCHA Karang Tengah Ciledug",
-  "start_url": "/?mode=pos",
+  "name": "INCHA Karang Tengah",
+  "short_name": "INCHA",
+  "description": "Aplikasi Kasir POS & Dashboard Pemilik INCHA Karang Tengah, Tangerang",
+  "start_url": "/",
   "display": "standalone",
-  "background_color": "#1B2A5C",
+  "background_color": "#FAF8F4",
   "theme_color": "#1B2A5C",
-  "orientation": "portrait",
+  "orientation": "any",
   "icons": [
     {
-      "src": "/incha-logo.svg",
+      "src": "/incha-emblem.png",
       "sizes": "192x192 512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

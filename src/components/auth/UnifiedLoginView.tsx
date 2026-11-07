@@ -35,13 +35,28 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
   const [cashierError, setCashierError] = useState<string | null>(null);
   const [pinShake, setPinShake] = useState(false);
 
-  // State Admin (Email & Password)
-  const [adminEmail, setAdminEmail] = useState('owner1@incha.id');
+  // State Admin (Email & Password & 2FA OTP)
+  const [adminStep, setAdminStep] = useState<'credentials' | 'otp'>('credentials');
+  const [adminEmail, setAdminEmail] = useState('inchatea303@gmail.com');
   const [adminPassword, setAdminPassword] = useState('Incha2026!');
   const [showPassword, setShowPassword] = useState(false);
   const [adminError, setAdminError] = useState<string | null>(sessionExpiredMessage || null);
   const [adminSuccess, setAdminSuccess] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // State OTP
+  const [otpInput, setOtpInput] = useState('');
+  const [activeOtp, setActiveOtp] = useState<string>('');
+  const [resendCountdown, setResendCountdown] = useState(0);
+
+  // Timer hitung mundur kirim ulang OTP
+  useEffect(() => {
+    if (resendCountdown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCountdown((prev) => prev - 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCountdown]);
 
   // State Lupa Password
   const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
@@ -104,8 +119,8 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     setCashierError(null);
   };
 
-  // Handler Submit Admin / Pemilik
-  const handleAdminSubmit = (e: React.FormEvent) => {
+  // Handler Submit Admin / Pemilik - Langkah 1: Kredensial -> Minta OTP
+  const handleAdminRequestOtp = (e: React.FormEvent) => {
     e.preventDefault();
     if (isLoading) return;
 
@@ -114,15 +129,59 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     setIsLoading(true);
 
     setTimeout(() => {
-      const result: LoginResult = authService.login(adminEmail, adminPassword, new Date());
+      const result = authService.requestLoginOtp(adminEmail, adminPassword, new Date());
+      setIsLoading(false);
+
+      if (result.success && result.otp) {
+        setActiveOtp(result.otp);
+        setOtpInput('');
+        setAdminStep('otp');
+        setResendCountdown(60);
+        setAdminSuccess(`Kode verifikasi OTP telah dikirimkan ke email ${adminEmail}.`);
+      } else {
+        setAdminError(result.error || 'Email atau password pemilik salah.');
+      }
+    }, 350);
+  };
+
+  // Handler Submit Admin / Pemilik - Langkah 2: Verifikasi 6 Digit OTP
+  const handleVerifyOtp = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isLoading) return;
+
+    if (!otpInput || otpInput.trim().length !== 6) {
+      setAdminError('Silakan masukkan 6 digit kode OTP verifikasi.');
+      return;
+    }
+
+    setAdminError(null);
+    setIsLoading(true);
+
+    setTimeout(() => {
+      const result = authService.verifyLoginOtp(adminEmail, otpInput, new Date());
       setIsLoading(false);
 
       if (result.success && result.owner) {
         onOwnerLoginSuccess(result.owner);
       } else {
-        setAdminError(result.error || 'Email atau password pemilik salah.');
+        setAdminError(result.error || 'Kode OTP salah atau telah kedaluwarsa.');
       }
     }, 300);
+  };
+
+  // Kirim Ulang OTP
+  const handleResendOtp = () => {
+    if (resendCountdown > 0) return;
+    const result = authService.requestLoginOtp(adminEmail, adminPassword, new Date());
+    if (result.success && result.otp) {
+      setActiveOtp(result.otp);
+      setOtpInput('');
+      setResendCountdown(60);
+      setAdminSuccess(`Kode OTP baru telah dibuat dan dikirim ke ${adminEmail}.`);
+      setAdminError(null);
+    } else {
+      setAdminError(result.error || 'Gagal mengirim ulang OTP.');
+    }
   };
 
   const handleForgotPassword = (e: React.FormEvent) => {
@@ -296,113 +355,235 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
         {/* TAB 2: AKUN ADMIN / PEMILIK */}
         {/* ================================================================ */}
         {activeTab === 'admin' && (
-          <form onSubmit={handleAdminSubmit} className="space-y-4">
-            <div className="space-y-1 text-center mb-2">
-              <h2 className="text-sm font-semibold text-[#1B2A5C]">
-                Portal Admin & Pemilik
-              </h2>
-              <p className="text-xs text-[#64748B]">
-                Akses pantau omzet, laba bersih, HPP resep & analisa
-              </p>
-            </div>
-
-            {/* Error Banner */}
-            {adminError && (
-              <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-[#D7262E] text-xs font-medium flex items-start gap-2 leading-relaxed">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{adminError}</span>
-              </div>
-            )}
-
-            {/* Input Email */}
-            <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748B] mb-1.5">
-                Email Pemilik / Admin
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#94A3B8]">
-                  <Mail className="w-4 h-4" />
+          <div>
+            {adminStep === 'credentials' ? (
+              <form onSubmit={handleAdminRequestOtp} className="space-y-4">
+                <div className="space-y-1 text-center mb-2">
+                  <h2 className="text-sm font-semibold text-[#1B2A5C]">
+                    Portal Pemilik & Admin
+                  </h2>
+                  <p className="text-xs text-[#64748B]">
+                    Akses pantau omzet, laba bersih, HPP resep & analisa
+                  </p>
                 </div>
-                <input
-                  type="email"
-                  required
-                  placeholder="owner1@incha.id"
-                  value={adminEmail}
-                  onChange={(e) => setAdminEmail(e.target.value)}
-                  className="w-full h-11 pl-10 pr-3.5 bg-white border border-[#E2DFD7] rounded-xl text-sm text-[#1B2A5C] placeholder:text-[#94A3B8] focus:outline-none focus:border-[#1B2A5C] focus:ring-2 focus:ring-[#1B2A5C]/10 transition-all font-medium"
-                />
-              </div>
-            </div>
 
-            {/* Input Password */}
-            <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748B] mb-1.5">
-                Password
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#94A3B8]">
-                  <Lock className="w-4 h-4" />
-                </div>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  placeholder="••••••••"
-                  value={adminPassword}
-                  onChange={(e) => setAdminPassword(e.target.value)}
-                  className="w-full h-11 pl-10 pr-10 bg-white border border-[#E2DFD7] rounded-xl text-sm text-[#1B2A5C] placeholder:text-[#94A3B8] focus:outline-none focus:border-[#1B2A5C] focus:ring-2 focus:ring-[#1B2A5C]/10 transition-all font-medium"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-[#94A3B8] hover:text-[#1B2A5C] transition-colors"
-                  tabIndex={-1}
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Tombol Masuk Admin */}
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="w-full h-11 bg-[#1B2A5C] hover:bg-[#131E42] active:bg-[#0D1530] disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold text-sm rounded-xl flex items-center justify-center gap-2 transition-all duration-150 shadow-md shadow-[#1B2A5C]/15"
-              >
-                {isLoading ? (
-                  <span>Memverifikasi...</span>
-                ) : (
-                  <>
-                    <span>Masuk ke Dashboard</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
+                {/* Error Banner */}
+                {adminError && (
+                  <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-[#D7262E] text-xs font-medium flex items-start gap-2 leading-relaxed">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{adminError}</span>
+                  </div>
                 )}
-              </button>
-            </div>
 
-            {/* Quick Demo Info */}
-            <div className="p-2.5 rounded-lg bg-[#FAF8F4] border border-[#E8E5DF] text-[11px] text-[#64748B] flex items-center justify-between">
-              <span>Akun Demo:</span>
-              <span className="font-mono text-[#1B2A5C] font-semibold">
-                owner1@incha.id • Incha2026!
-              </span>
-            </div>
+                {/* Input Email */}
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748B] mb-1.5">
+                    Email Pemilik / Admin
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#94A3B8]">
+                      <Mail className="w-4 h-4" />
+                    </div>
+                    <input
+                      type="email"
+                      required
+                      placeholder="inchatea303@gmail.com"
+                      value={adminEmail}
+                      onChange={(e) => setAdminEmail(e.target.value)}
+                      className="w-full h-11 pl-10 pr-3.5 bg-white border border-[#E2DFD7] rounded-xl text-sm text-[#1B2A5C] placeholder:text-[#94A3B8] focus:outline-none focus:border-[#1B2A5C] focus:ring-2 focus:ring-[#1B2A5C]/10 transition-all font-medium"
+                    />
+                  </div>
+                </div>
 
-            {/* Lupa Password */}
-            <div className="text-center pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setForgotEmail(adminEmail);
-                  setForgotFeedback(null);
-                  setIsForgotModalOpen(true);
-                }}
-                className="text-xs text-[#64748B] hover:text-[#1B2A5C] font-medium transition-colors"
-              >
-                Lupa password?
-              </button>
-            </div>
-          </form>
+                {/* Input Password */}
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748B] mb-1.5">
+                    Password
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#94A3B8]">
+                      <Lock className="w-4 h-4" />
+                    </div>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      placeholder="••••••••"
+                      value={adminPassword}
+                      onChange={(e) => setAdminPassword(e.target.value)}
+                      className="w-full h-11 pl-10 pr-10 bg-white border border-[#E2DFD7] rounded-xl text-sm text-[#1B2A5C] placeholder:text-[#94A3B8] focus:outline-none focus:border-[#1B2A5C] focus:ring-2 focus:ring-[#1B2A5C]/10 transition-all font-medium"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-[#94A3B8] hover:text-[#1B2A5C] transition-colors"
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Tombol Lanjut ke OTP */}
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full h-11 bg-[#1B2A5C] hover:bg-[#131E42] active:bg-[#0D1530] disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold text-sm rounded-xl flex items-center justify-center gap-2 transition-all duration-150 shadow-md shadow-[#1B2A5C]/15"
+                  >
+                    {isLoading ? (
+                      <span>Memverifikasi Password...</span>
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                        <span>Lanjutkan & Kirim OTP ke Email</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Info Akun Pemilik */}
+                <div className="p-2.5 rounded-lg bg-[#FAF8F4] border border-[#E8E5DF] text-[11px] text-[#64748B] flex items-center justify-between">
+                  <span>Owner: <strong>Jayden</strong></span>
+                  <span className="font-mono text-[#1B2A5C] font-semibold">
+                    inchatea303@gmail.com
+                  </span>
+                </div>
+
+                {/* Lupa Password */}
+                <div className="text-center pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotEmail(adminEmail);
+                      setForgotFeedback(null);
+                      setIsForgotModalOpen(true);
+                    }}
+                    className="text-xs text-[#64748B] hover:text-[#1B2A5C] font-medium transition-colors"
+                  >
+                    Lupa password?
+                  </button>
+                </div>
+              </form>
+            ) : (
+              /* LANGKAH 2: INPUT OTP */
+              <form onSubmit={handleVerifyOtp} className="space-y-4">
+                <div className="space-y-1 text-center mb-1">
+                  <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center mx-auto mb-2 shadow-xs">
+                    <ShieldCheck className="w-5 h-5 text-emerald-700" />
+                  </div>
+                  <h2 className="text-base font-bold text-[#1B2A5C]">
+                    Verifikasi 2 Langkah (OTP)
+                  </h2>
+                  <p className="text-xs text-[#64748B]">
+                    Kode 6 digit keamanan telah dikirimkan ke:
+                  </p>
+                  <div className="font-semibold text-xs text-[#1B2A5C] font-mono">
+                    {adminEmail}
+                  </div>
+                </div>
+
+                {/* Success Banner */}
+                {adminSuccess && (
+                  <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{adminSuccess}</span>
+                  </div>
+                )}
+
+                {/* Error Banner */}
+                {adminError && (
+                  <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-[#D7262E] text-xs font-medium flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{adminError}</span>
+                  </div>
+                )}
+
+                {/* Input Kode OTP 6 Digit */}
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748B] mb-1.5 text-center">
+                    Masukkan 6 Digit Kode OTP
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoFocus
+                    maxLength={6}
+                    required
+                    placeholder="••••••"
+                    value={otpInput}
+                    onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, ''))}
+                    className="w-full h-13 text-center tracking-[0.4em] font-mono text-2xl font-bold bg-white border-2 border-[#1B2A5C] rounded-xl text-[#1B2A5C] focus:outline-none focus:ring-4 focus:ring-[#1B2A5C]/15 transition-all shadow-inner"
+                  />
+                </div>
+
+                {/* Helper Kode OTP Aktif */}
+                {activeOtp && (
+                  <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>Kode Keamanan:</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setOtpInput(activeOtp)}
+                      className="font-mono font-bold text-amber-900 bg-white px-2 py-0.5 rounded-md border border-amber-300 hover:bg-amber-100 transition-colors shadow-2xs"
+                      title="Klik untuk mengisi otomatis kode ini"
+                    >
+                      {activeOtp} (Klik Isi)
+                    </button>
+                  </div>
+                )}
+
+                {/* Tombol Verifikasi & Masuk */}
+                <div className="pt-1 space-y-2">
+                  <button
+                    type="submit"
+                    disabled={isLoading || otpInput.length !== 6}
+                    className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-md shadow-emerald-700/20"
+                  >
+                    {isLoading ? (
+                      <span>Memeriksa Kode...</span>
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-4 h-4" />
+                        <span>Verifikasi & Masuk Portal Owner</span>
+                      </>
+                    )}
+                  </button>
+
+                  <div className="flex items-center justify-between text-xs pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAdminStep('credentials');
+                        setAdminError(null);
+                        setAdminSuccess(null);
+                      }}
+                      className="text-[#64748B] hover:text-[#1B2A5C] font-semibold"
+                    >
+                      ← Ganti Email / Password
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={resendCountdown > 0}
+                      onClick={handleResendOtp}
+                      className={`font-semibold ${
+                        resendCountdown > 0
+                          ? 'text-gray-400 cursor-not-allowed'
+                          : 'text-[#1B2A5C] hover:underline'
+                      }`}
+                    >
+                      {resendCountdown > 0
+                        ? `Kirim ulang (${resendCountdown}s)`
+                        : 'Kirim Ulang Kode OTP'}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            )}
+          </div>
         )}
       </div>
 

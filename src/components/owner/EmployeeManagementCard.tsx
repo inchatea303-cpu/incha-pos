@@ -115,8 +115,8 @@ export const EmployeeManagementCard: React.FC = () => {
           <div className="p-4 rounded-xl bg-[#F8F6F0] border border-[#E8E5DF] space-y-2">
             <div className="flex justify-between items-start">
               <div>
-                <div className="font-bold text-sm text-[#1B2A5C]">Hendra Kusuma</div>
-                <div className="text-xs text-[#64748B]">owner1@incha.id</div>
+                <div className="font-bold text-sm text-[#1B2A5C]">Jayden</div>
+                <div className="text-xs text-[#64748B]">inchatea303@gmail.com</div>
               </div>
               <span className="text-[10px] uppercase font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
                 Pemilik Utama

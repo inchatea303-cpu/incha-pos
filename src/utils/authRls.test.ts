@@ -15,7 +15,7 @@ describe('Langkah 1: Pengujian Otentikasi Pemilik, Penguncian Akun, dan RLS', ()
       const accounts = auth.getAccounts();
       expect(accounts.length).toBe(2);
       expect(accounts.map((a) => a.email)).toEqual([
-        'owner1@incha.id',
+        'inchatea303@gmail.com',
         'owner2@incha.id',
       ]);
     });
@@ -28,10 +28,10 @@ describe('Langkah 1: Pengujian Otentikasi Pemilik, Penguncian Akun, dan RLS', ()
   });
 
   describe('2. Pengujian Login dan Penanganan Kesalahan', () => {
-    it('Login berhasil dengan kredensial pemilik yang benar', () => {
-      const res = auth.login('owner1@incha.id', 'Incha2026!', fixedNow);
+    it('Login berhasil dengan kredensial pemilik yang benar (Jayden)', () => {
+      const res = auth.login('inchatea303@gmail.com', 'Incha2026!', fixedNow);
       expect(res.success).toBe(true);
-      expect(res.owner?.name).toBe('Hendra Kusuma');
+      expect(res.owner?.name).toBe('Jayden');
       expect(res.owner?.failedAttempts).toBe(0);
     });
 
@@ -42,12 +42,12 @@ describe('Langkah 1: Pengujian Otentikasi Pemilik, Penguncian Akun, dan RLS', ()
     });
 
     it('Login gagal dengan password salah mencatat kenaikan jumlah percobaan gagal', () => {
-      const res1 = auth.login('owner1@incha.id', 'wrongPassword', fixedNow);
+      const res1 = auth.login('inchatea303@gmail.com', 'wrongPassword', fixedNow);
       expect(res1.success).toBe(false);
       expect(res1.error).toBe('Email atau password salah.');
 
       const accounts = auth.getAccounts();
-      const acc = accounts.find((a) => a.email === 'owner1@incha.id');
+      const acc = accounts.find((a) => a.email === 'inchatea303@gmail.com');
       expect(acc?.failedAttempts).toBe(1);
     });
   });
@@ -56,14 +56,14 @@ describe('Langkah 1: Pengujian Otentikasi Pemilik, Penguncian Akun, dan RLS', ()
     it('Akun terkunci otomatis setelah 5 kali berturut-turut memasukkan password salah', () => {
       // 4x gagal pertama
       for (let i = 1; i <= 4; i++) {
-        const res = auth.login('owner1@incha.id', `wrong-${i}`, fixedNow);
+        const res = auth.login('inchatea303@gmail.com', `wrong-${i}`, fixedNow);
         expect(res.success).toBe(false);
         expect(res.error).toBe('Email atau password salah.');
         expect(res.isLocked).toBeFalsy();
       }
 
       // Percobaan ke-5: harus langsung mengunci akun
-      const res5 = auth.login('owner1@incha.id', 'wrong-5', fixedNow);
+      const res5 = auth.login('inchatea303@gmail.com', 'wrong-5', fixedNow);
       expect(res5.success).toBe(false);
       expect(res5.isLocked).toBe(true);
       expect(res5.error).toBe(
@@ -72,7 +72,7 @@ describe('Langkah 1: Pengujian Otentikasi Pemilik, Penguncian Akun, dan RLS', ()
 
       // Percobaan ke-6 (bahkan dengan password yang benar) tetap diblokir selama durasi 15 menit
       const attemptWhileLocked = auth.login(
-        'owner1@incha.id',
+        'inchatea303@gmail.com',
         'Incha2026!',
         new Date(fixedNow.getTime() + 5 * 60 * 1000) // 5 menit kemudian
       );
@@ -86,12 +86,12 @@ describe('Langkah 1: Pengujian Otentikasi Pemilik, Penguncian Akun, dan RLS', ()
     it('Akun otomatis terbuka kembali setelah jeda 15 menit terlewati', () => {
       // Kunci akun dengan 5x salah
       for (let i = 1; i <= 5; i++) {
-        auth.login('owner1@incha.id', 'wrong', fixedNow);
+        auth.login('inchatea303@gmail.com', 'wrong', fixedNow);
       }
 
       // Coba login setelah 15 menit 1 detik (901.000 ms)
       const after15Minutes = new Date(fixedNow.getTime() + 15 * 60 * 1000 + 1000);
-      const res = auth.login('owner1@incha.id', 'Incha2026!', after15Minutes);
+      const res = auth.login('inchatea303@gmail.com', 'Incha2026!', after15Minutes);
 
       expect(res.success).toBe(true);
       expect(res.owner?.failedAttempts).toBe(0);
@@ -146,6 +146,30 @@ describe('Langkah 1: Pengujian Otentikasi Pemilik, Penguncian Akun, dan RLS', ()
     it('Akses web dashboard diizinkan untuk role pemilik', () => {
       const ownerAccess = auth.enforceWebAccess('pemilik');
       expect(ownerAccess.allowed).toBe(true);
+    });
+  });
+
+  describe('7. Pengujian 2FA / Login dengan OTP ke Email Pemilik', () => {
+    it('Membuat kode OTP 6 digit yang valid saat kredensial benar', () => {
+      const otpRes = auth.requestLoginOtp('inchatea303@gmail.com', 'Incha2026!', fixedNow);
+      expect(otpRes.success).toBe(true);
+      expect(otpRes.otp).toBeDefined();
+      expect(otpRes.otp?.length).toBe(6);
+    });
+
+    it('Verifikasi berhasil saat memasukkan kode OTP yang cocok', () => {
+      const otpRes = auth.requestLoginOtp('inchatea303@gmail.com', 'Incha2026!', fixedNow);
+      const verifyRes = auth.verifyLoginOtp('inchatea303@gmail.com', otpRes.otp!, fixedNow);
+      expect(verifyRes.success).toBe(true);
+      expect(verifyRes.owner?.name).toBe('Jayden');
+      expect(verifyRes.owner?.email).toBe('inchatea303@gmail.com');
+    });
+
+    it('Menolak kode OTP yang salah dan membatasi percobaan', () => {
+      auth.requestLoginOtp('inchatea303@gmail.com', 'Incha2026!', fixedNow);
+      const wrong1 = auth.verifyLoginOtp('inchatea303@gmail.com', '000000', fixedNow);
+      expect(wrong1.success).toBe(false);
+      expect(wrong1.error).toContain('Percobaan 1/3');
     });
   });
 });

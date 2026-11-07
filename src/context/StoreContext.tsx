@@ -166,6 +166,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (!saved || saved === 'undefined' || saved === 'null') return null;
       const parsed: OwnerAccount = JSON.parse(saved);
       if (!parsed || !parsed.email) return null;
+      // Migrasi nama dan email pemilik ke Jayden / inchatea303@gmail.com
+      if (parsed.email === 'owner1@incha.id' || parsed.name === 'Hendra Kusuma') {
+        parsed.name = 'Jayden';
+        parsed.email = 'inchatea303@gmail.com';
+        localStorage.setItem(STORAGE_KEYS.OWNER_AUTH, JSON.stringify(parsed));
+      }
       const session = authService.checkSession(parsed.lastActiveAt);
       if (!session.isValid) {
         return null;

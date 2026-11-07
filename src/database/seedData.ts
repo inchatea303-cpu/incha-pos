@@ -11,8 +11,8 @@ import {
 export const INITIAL_OWNER_ACCOUNTS: OwnerAccount[] = [
   {
     id: 'owner-1',
-    email: 'owner1@incha.id',
-    name: 'Hendra Kusuma',
+    email: 'inchatea303@gmail.com',
+    name: 'Jayden',
     role: 'pemilik',
     passwordHash: 'Incha2026!',
     failedAttempts: 0,
@@ -515,7 +515,7 @@ export const INITIAL_AUDIT_LOGS: AuditLog[] = [
   {
     id: 'log-2',
     timestamp: '2026-10-26T10:15:00.000Z',
-    actor: 'Hendra Kusuma',
+    actor: 'Jayden',
     page: 'Bahan & Restock',
     action: 'VERIFIKASI_DATA',
     details: 'Tandai Osmanthus Base dan Peach Base sebagai terverifikasi. Catat Brownsugar Base belum diverifikasi.',

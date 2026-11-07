@@ -175,17 +175,16 @@ export interface StockOpnameRecord {
   recordedBy: string;
 }
 
-export type ExpenseCategory = 'fixed' | 'variable';
+export type ExpenseCategory = 'Biaya Tetap' | 'Biaya Variabel' | 'Gaji & Upah' | 'Lain-lain' | 'fixed' | 'variable';
 
 export interface Expense {
   id: string;
-  name: string;
-  category: ExpenseCategory;
-  amount: number;
-  isRecurringMonthly: boolean;
   date: string;
-  notes?: string;
-  recordedBy: string;
+  category: string;
+  description: string;
+  amount: number;
+  recordedBy?: string;
+  createdAt?: string;
 }
 
 export type PromoType = 'discount_pct' | 'discount_nom' | 'b1g1' | 'bundle';

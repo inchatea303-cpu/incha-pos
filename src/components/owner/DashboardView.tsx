@@ -108,9 +108,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     { date: '02 Nov', omzet: 980000, laba: 480000 },
     { date: '03 Nov', omzet: 1050000, laba: 510000 },
     {
-      date: '04 Nov',
-      omzet: todayGross > 0 ? todayGross : 1150000,
-      laba: todayGross > 0 ? todayNetProfit : 560000,
+      date: 'Hari ini',
+      omzet: todayGross,
+      laba: todayNetProfit,
     },
   ];
 
@@ -143,17 +143,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     .sort((a, b) => b.cups - a.cups)
     .slice(0, 5);
 
-  // Fallback demo data jika belum ada penjualan hari ini
-  const displayBestSellers =
-    bestSellingToday.length > 0
-      ? bestSellingToday
-      : [
-          { name: 'Oolong Osmanthus Milk Tea', cups: 42, profit: 345000 },
-          { name: 'Peach Jasmine Milk Tea', cups: 31, profit: 255000 },
-          { name: 'Brownsugar Roasted Oolong', cups: 26, profit: 195000 },
-          { name: 'Roasted Oolong Tea', cups: 18, profit: 90000 },
-          { name: 'Matcha Milk Tea', cups: 14, profit: 115000 },
-        ];
+  // Menu terlaris hari ini berdasarkan data transaksi nyata
+  const displayBestSellers = bestSellingToday;
 
   // 6. Transaksi Terakhir (Maksimal 10 Baris)
   const recentTransactions = transactions.slice(0, 10);
@@ -244,7 +235,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {todayCups} cup
             </span>
             <span className="text-xs text-[#64748B] font-medium">
-              target 25 cup
+              target {bepTargetCupsPerDay} cup
             </span>
           </div>
         </div>
@@ -281,7 +272,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {bepProgressPct}%
               </span>
               <span className="text-xs text-[#64748B] tabular-nums font-medium">
-                target 25 cup
+                target {bepTargetCupsPerDay} cup
               </span>
             </div>
             {/* Batang tipis progres */}
@@ -416,26 +407,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span className="text-xs text-[#5B6478]">Berdasarkan porsi</span>
             </div>
 
-            <div className="divide-y divide-[#E6E9F2]">
-              {displayBestSellers.map((item, idx) => (
-                <div
-                  key={idx}
-                  className="py-2.5 flex items-center justify-between text-xs"
-                >
-                  <div className="font-medium text-[#1B2A5C] truncate pr-2">
-                    {item.name}
+            {displayBestSellers.length === 0 ? (
+              <div className="py-8 text-center text-xs text-[#5B6478]">
+                Belum ada penjualan menu hari ini.
+              </div>
+            ) : (
+              <div className="divide-y divide-[#E6E9F2]">
+                {displayBestSellers.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="py-2.5 flex items-center justify-between text-xs"
+                  >
+                    <div className="font-medium text-[#1B2A5C] truncate pr-2">
+                      {item.name}
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0 tabular-nums">
+                      <span className="font-semibold text-[#1B2A5C]">
+                        {item.cups} cup
+                      </span>
+                      <span className="text-[#1B7F3B] font-semibold">
+                        +{formatRupiah(item.profit)}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3 shrink-0 tabular-nums">
-                    <span className="font-semibold text-[#1B2A5C]">
-                      {item.cups} cup
-                    </span>
-                    <span className="text-[#1B7F3B] font-semibold">
-                      +{formatRupiah(item.profit)}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

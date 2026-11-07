@@ -14,6 +14,7 @@ import {
   SalesTransaction,
   SalesItem,
   SyncStatus,
+  Expense,
 } from '../types';
 import {
   INITIAL_OWNER_ACCOUNTS,
@@ -58,6 +59,10 @@ interface StoreContextType {
   priceHistory: IngredientPriceHistory[];
   auditLogs: AuditLog[];
   transactions: SalesTransaction[];
+  expenses: Expense[];
+  addExpense: (expense: Omit<Expense, 'id' | 'createdAt'>) => void;
+  deleteExpense: (id: string) => void;
+  resetExpenses: () => void;
   activeAlert: string | null;
   isOnline: boolean;
   pendingOfflineCount: number;
@@ -136,6 +141,7 @@ const STORAGE_KEYS = {
   PRICE_HISTORY: 'incha_price_history',
   AUDIT_LOGS: 'incha_audit_logs',
   TRANSACTIONS: 'incha_sales_transactions',
+  EXPENSES: 'incha_expenses',
 };
 
 // Helper aman membaca localStorage tanpa resiko SyntaxError jika data corrupt
@@ -221,6 +227,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [transactions, setTransactions] = useState<SalesTransaction[]>(() =>
     safeLoadFromStorage(STORAGE_KEYS.TRANSACTIONS, [])
   );
+
+  const [expenses, setExpenses] = useState<Expense[]>(() => {
+    const saved = safeLoadFromStorage<Expense[]>(STORAGE_KEYS.EXPENSES, []);
+    // Bersihkan dummy demo lama jika ada
+    return saved.filter((e) => e.id !== 'exp-1' && e.id !== 'exp-2');
+  });
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(expenses));
+  }, [expenses]);
 
   const [activeAlert, setActiveAlert] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
@@ -802,6 +818,36 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  const addExpense = (data: Omit<Expense, 'id' | 'createdAt'>) => {
+    const newExp: Expense = {
+      ...data,
+      id: `exp-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+    setExpenses((prev) => [newExp, ...prev]);
+    addAuditLog(
+      'TAMBAH_PENGELUARAN',
+      `Catat pengeluaran [${data.category}]: ${data.description} (${formatRupiah(data.amount)})`
+    );
+  };
+
+  const deleteExpense = (id: string) => {
+    const target = expenses.find((e) => e.id === id);
+    setExpenses((prev) => prev.filter((e) => e.id !== id));
+    if (target) {
+      addAuditLog(
+        'HAPUS_PENGELUARAN',
+        `Menghapus pengeluaran: ${target.description} (${formatRupiah(target.amount)})`
+      );
+    }
+  };
+
+  const resetExpenses = () => {
+    setExpenses([]);
+    localStorage.removeItem(STORAGE_KEYS.EXPENSES);
+    addAuditLog('RESET_PENGELUARAN', 'Seluruh daftar pengeluaran operasional di-reset ke Rp0.');
+  };
+
   const resetTransactions = async () => {
     localStorage.removeItem(STORAGE_KEYS.TRANSACTIONS);
     setTransactions([]);
@@ -829,6 +875,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     localStorage.removeItem(STORAGE_KEYS.AUDIT_LOGS);
     localStorage.removeItem(STORAGE_KEYS.EMPLOYEES);
     localStorage.removeItem(STORAGE_KEYS.TRANSACTIONS);
+    localStorage.removeItem(STORAGE_KEYS.EXPENSES);
 
     setIngredients(INITIAL_INGREDIENTS);
     setProducts(INITIAL_PRODUCTS);
@@ -836,6 +883,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setBusinessParams(INITIAL_BUSINESS_PARAMS);
     setEmployees(INITIAL_EMPLOYEES);
     setTransactions([]);
+    setExpenses([]);
     setPriceHistory([]);
     setAuditLogs([
       {
@@ -864,6 +912,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         priceHistory,
         auditLogs,
         transactions,
+        expenses,
+        addExpense,
+        deleteExpense,
+        resetExpenses,
         activeAlert,
         isOnline,
         pendingOfflineCount,

@@ -16,6 +16,7 @@ import {
   Plus,
   CheckCircle,
   X,
+  Trash2,
 } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
 import { formatRupiah, formatDateWIB } from '../../utils/calculations';
@@ -30,6 +31,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ onOpenCashier }) => {
     transactions,
     products,
     businessParams,
+    expenses,
+    addExpense,
+    deleteExpense,
+    resetExpenses,
     resetTransactions,
     syncCloudData,
   } = useStore();
@@ -39,31 +44,16 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ onOpenCashier }) => {
   const [channelFilter, setChannelFilter] = useState<string>('all');
   const [paymentFilter, setPaymentFilter] = useState<string>('all');
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [resetIncludeExpenses, setResetIncludeExpenses] = useState(true);
+  const [isResetExpensesOpen, setIsResetExpensesOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [selectedTxDetail, setSelectedTxDetail] = useState<SalesTransaction | null>(null);
 
   // Modal Tambah Pengeluaran
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
-  const [expenses, setExpenses] = useState<
-    Array<{ id: string; date: string; category: string; description: string; amount: number }>
-  >([
-    {
-      id: 'exp-1',
-      date: new Date().toISOString().slice(0, 10),
-      category: 'Biaya Tetap',
-      description: 'Sewa Tempat & Listrik (Rp900rb/bln)',
-      amount: 30000,
-    },
-    {
-      id: 'exp-2',
-      date: new Date().toISOString().slice(0, 10),
-      category: 'Biaya Variabel',
-      description: 'Pembelian Air Galon & Gas',
-      amount: 45000,
-    },
-  ]);
   const [newExpForm, setNewExpForm] = useState({
-    category: 'Biaya Variabel',
+    date: new Date().toISOString().slice(0, 10),
+    category: 'Biaya Tetap',
     description: '',
     amount: '',
   });
@@ -125,9 +115,9 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ onOpenCashier }) => {
   }, [expenses]);
 
   const netProfit = useMemo(() => {
-    if (totalOmzet === 0 && filteredTransactions.length === 0) return 0;
-    return totalOmzet - totalHPP - (totalOmzet > 0 ? totalExpenses : 0);
-  }, [totalOmzet, totalHPP, totalExpenses, filteredTransactions.length]);
+    if (totalOmzet === 0 && totalExpenses === 0) return 0;
+    return totalOmzet - totalHPP - totalExpenses;
+  }, [totalOmzet, totalHPP, totalExpenses]);
 
   // Data Tutup Kas
   const cashSales = useMemo(() => {
@@ -244,7 +234,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ onOpenCashier }) => {
           </div>
           <div className="flex items-baseline justify-between">
             <span className="text-2xl font-bold text-[#1B2A5C] tabular-nums tracking-tight font-mono">
-              {formatRupiah(totalOmzet > 0 ? totalExpenses : 0)}
+              {formatRupiah(totalExpenses)}
             </span>
             <span className="text-xs text-[#64748B] font-medium">
               {expenses.length} pos
@@ -263,7 +253,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ onOpenCashier }) => {
                 netProfit >= 0 ? 'text-emerald-700' : 'text-[#D7262E]'
               }`}
             >
-              {formatRupiah(netProfit)}
+              {netProfit < 0 ? `-${formatRupiah(Math.abs(netProfit))}` : formatRupiah(netProfit)}
             </span>
             <span className="text-xs text-[#64748B] font-medium">
               {totalOmzet > 0
@@ -444,44 +434,93 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ onOpenCashier }) => {
         {/* ============================================================== */}
         {activeTab === 'expenses' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="text-xs font-semibold text-[#64748B]">
-                Total Pengeluaran: <strong className="text-[#1B2A5C]">{formatRupiah(totalExpenses)}</strong>
+                Total Pengeluaran: <strong className="text-[#1B2A5C] text-sm tabular-nums font-mono">{formatRupiah(totalExpenses)}</strong>
+                <span className="ml-2 text-[11px] font-normal text-gray-400">({expenses.length} pos)</span>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsAddExpenseOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1B2A5C] hover:bg-[#243775] text-xs font-bold text-white shadow-xs transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Tambah Pengeluaran</span>
-              </button>
+              <div className="flex items-center gap-2">
+                {expenses.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setIsResetExpensesOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-rose-50 border border-rose-200 text-[#D7262E] text-xs font-bold shadow-xs transition-colors"
+                    title="Kosongkan semua daftar pengeluaran operasional"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Hapus Semua</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsAddExpenseOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1B2A5C] hover:bg-[#243775] text-xs font-bold text-white shadow-xs transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Tambah Pengeluaran</span>
+                </button>
+              </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-[#FAF8F4] text-[#5B6478] uppercase font-semibold border-b border-[#E6E4DD]">
-                  <tr className="h-10">
-                    <th className="px-3">Tanggal</th>
-                    <th className="px-3">Kategori</th>
-                    <th className="px-3">Keterangan</th>
-                    <th className="px-3 text-right">Nominal</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#F1EFEA]">
-                  {expenses.map((exp) => (
-                    <tr key={exp.id} className="h-12 hover:bg-[#FAF8F4]/70 transition-colors">
-                      <td className="px-3 text-[#5B6478] tabular-nums">{exp.date}</td>
-                      <td className="px-3 font-semibold text-[#1B2A5C]">{exp.category}</td>
-                      <td className="px-3 text-[#1F2937]">{exp.description}</td>
-                      <td className="px-3 text-right font-bold text-[#D7262E] tabular-nums">
-                        -{formatRupiah(exp.amount)}
-                      </td>
+            {expenses.length === 0 ? (
+              <div className="py-12 text-center space-y-3 bg-[#FAF8F4]/40 rounded-2xl border border-dashed border-[#E6E4DD]">
+                <Wallet className="w-10 h-10 text-gray-300 mx-auto" />
+                <div className="text-sm font-semibold text-[#64748B]">
+                  Belum ada catatan pengeluaran operasional.
+                </div>
+                <p className="text-xs text-[#94A3B8] max-w-sm mx-auto">
+                  Total pengeluaran saat ini Rp0. Tekan tombol &quot;+ Tambah Pengeluaran&quot; untuk mencatat biaya sewa tempat, listrik, pembelian air galon, gas, atau es batu.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setIsAddExpenseOpen(true)}
+                  className="px-4 py-2 bg-[#1B2A5C] hover:bg-[#243775] text-xs font-bold text-white rounded-xl transition-colors shadow-xs"
+                >
+                  + Tambah Pengeluaran Sekarang
+                </button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-[#FAF8F4] text-[#5B6478] uppercase font-semibold border-b border-[#E6E4DD]">
+                    <tr className="h-10">
+                      <th className="px-3">Tanggal</th>
+                      <th className="px-3">Kategori</th>
+                      <th className="px-3">Keterangan</th>
+                      <th className="px-3 text-right">Nominal</th>
+                      <th className="px-3 text-center">Aksi</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-[#F1EFEA]">
+                    {expenses.map((exp) => (
+                      <tr key={exp.id} className="h-12 hover:bg-[#FAF8F4]/70 transition-colors">
+                        <td className="px-3 text-[#5B6478] tabular-nums whitespace-nowrap">{exp.date}</td>
+                        <td className="px-3 font-semibold text-[#1B2A5C] whitespace-nowrap">
+                          <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-bold">
+                            {exp.category}
+                          </span>
+                        </td>
+                        <td className="px-3 text-[#1F2937] font-medium">{exp.description}</td>
+                        <td className="px-3 text-right font-bold text-[#D7262E] tabular-nums font-mono whitespace-nowrap">
+                          -{formatRupiah(exp.amount)}
+                        </td>
+                        <td className="px-3 text-center whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => deleteExpense(exp.id)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white hover:bg-rose-50 border border-rose-200 text-[#D7262E] text-[11px] font-semibold transition-colors shadow-2xs"
+                            title="Hapus pengeluaran ini"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Hapus</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
@@ -611,25 +650,80 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ onOpenCashier }) => {
               </button>
             </div>
 
+            {/* Tombol Cepat Pilihan Populer */}
+            <div>
+              <div className="text-[10px] uppercase font-bold text-gray-400 mb-1.5">Pilihan Cepat (Opsional):</div>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setNewExpForm({
+                    ...newExpForm,
+                    category: 'Biaya Tetap',
+                    description: 'Sewa Tempat & Listrik Toko',
+                    amount: '900000',
+                  })}
+                  className="px-2 py-1 rounded-lg bg-[#FAF8F4] hover:bg-gray-100 border border-[#E6E4DD] text-[10px] font-semibold text-[#1B2A5C]"
+                >
+                  Sewa & Listrik (Rp900rb)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewExpForm({
+                    ...newExpForm,
+                    category: 'Biaya Variabel',
+                    description: 'Pembelian Air Galon & Gas Elpiji',
+                    amount: '41000',
+                  })}
+                  className="px-2 py-1 rounded-lg bg-[#FAF8F4] hover:bg-gray-100 border border-[#E6E4DD] text-[10px] font-semibold text-[#1B2A5C]"
+                >
+                  Air Galon & Gas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewExpForm({
+                    ...newExpForm,
+                    category: 'Biaya Variabel',
+                    description: 'Pembelian Es Kristal Higienis',
+                    amount: '12000',
+                  })}
+                  className="px-2 py-1 rounded-lg bg-[#FAF8F4] hover:bg-gray-100 border border-[#E6E4DD] text-[10px] font-semibold text-[#1B2A5C]"
+                >
+                  Es Kristal
+                </button>
+              </div>
+            </div>
+
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 if (!newExpForm.description || !newExpForm.amount) return;
-                setExpenses([
-                  ...expenses,
-                  {
-                    id: `exp-${Date.now()}`,
-                    date: new Date().toISOString().slice(0, 10),
-                    category: newExpForm.category,
-                    description: newExpForm.description,
-                    amount: Number(newExpForm.amount) || 0,
-                  },
-                ]);
+                addExpense({
+                  date: newExpForm.date || new Date().toISOString().slice(0, 10),
+                  category: newExpForm.category,
+                  description: newExpForm.description,
+                  amount: Number(newExpForm.amount) || 0,
+                  recordedBy: 'Owner',
+                });
                 setIsAddExpenseOpen(false);
-                setNewExpForm({ category: 'Biaya Variabel', description: '', amount: '' });
+                setNewExpForm({
+                  date: new Date().toISOString().slice(0, 10),
+                  category: 'Biaya Variabel',
+                  description: '',
+                  amount: '',
+                });
               }}
               className="space-y-3 text-xs"
             >
+              <div>
+                <label className="block font-semibold text-[#1F2937] mb-1">Tanggal</label>
+                <input
+                  type="date"
+                  value={newExpForm.date}
+                  onChange={(e) => setNewExpForm({ ...newExpForm, date: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-xl"
+                />
+              </div>
+
               <div>
                 <label className="block font-semibold text-[#1F2937] mb-1">Kategori</label>
                 <select
@@ -637,19 +731,19 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ onOpenCashier }) => {
                   onChange={(e) => setNewExpForm({ ...newExpForm, category: e.target.value })}
                   className="w-full px-3 py-2 border rounded-xl"
                 >
-                  <option value="Biaya Tetap">Biaya Tetap</option>
-                  <option value="Biaya Variabel">Biaya Variabel</option>
+                  <option value="Biaya Tetap">Biaya Tetap (Sewa, Listrik, Internet)</option>
+                  <option value="Biaya Variabel">Biaya Variabel (Air Galon, Gas, Es)</option>
                   <option value="Gaji & Upah">Gaji & Upah</option>
                   <option value="Lain-lain">Lain-lain</option>
                 </select>
               </div>
 
               <div>
-                <label className="block font-semibold text-[#1F2937] mb-1">Keterangan</label>
+                <label className="block font-semibold text-[#1F2937] mb-1">Keterangan Pengeluaran</label>
                 <input
                   type="text"
                   required
-                  placeholder="Mis. Beli Es Batu Tambahan, Plastik, dll."
+                  placeholder="Mis. Pembelian Es Kristal, Plastik, dll."
                   value={newExpForm.description}
                   onChange={(e) => setNewExpForm({ ...newExpForm, description: e.target.value })}
                   className="w-full px-3 py-2 border rounded-xl"
@@ -674,18 +768,61 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ onOpenCashier }) => {
                 <button
                   type="button"
                   onClick={() => setIsAddExpenseOpen(false)}
-                  className="flex-1 py-2 rounded-xl bg-gray-100 text-gray-700 font-semibold"
+                  className="flex-1 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 rounded-xl bg-[#1B2A5C] text-white font-bold"
+                  className="flex-1 py-2 rounded-xl bg-[#1B2A5C] hover:bg-[#131E42] text-white font-bold shadow-xs"
                 >
                   Simpan
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Hapus Semua Pengeluaran */}
+      {isResetExpensesOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-white w-full max-w-sm rounded-2xl shadow-xl border border-[#E6E4DD] p-6 space-y-4">
+            <div className="flex items-center gap-3 text-[#D7262E]">
+              <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5 text-[#D7262E]" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-[#1B2A5C]">
+                  Hapus Semua Pengeluaran?
+                </h3>
+                <p className="text-[11px] text-[#64748B]">Kosongkan pos pengeluaran ke Rp0</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-[#5B6478] leading-relaxed">
+              Semua {expenses.length} catatan pengeluaran operasional akan dihapus permanen. Total pengeluaran akan kembali menjadi <strong>Rp0</strong>.
+            </p>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsResetExpensesOpen(false)}
+                className="flex-1 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 text-[#1B2A5C] font-semibold text-xs transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  resetExpenses();
+                  setIsResetExpensesOpen(false);
+                }}
+                className="flex-1 h-10 rounded-xl bg-[#D7262E] hover:bg-rose-700 text-white font-bold text-xs transition-colors shadow-xs"
+              >
+                Ya, Hapus Semua
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -710,6 +847,16 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ onOpenCashier }) => {
               Seluruh transaksi uji coba penjualan akan dibersihkan, angka omzet, HPP, dan laba bersih di halaman Keuangan dan Dashboard akan kembali menjadi <strong>Rp0</strong>.
             </p>
 
+            <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-[#1F2937] p-2 rounded-lg bg-gray-50 border border-gray-200">
+              <input
+                type="checkbox"
+                checked={resetIncludeExpenses}
+                onChange={(e) => setResetIncludeExpenses(e.target.checked)}
+                className="w-4 h-4 rounded text-[#D7262E] focus:ring-0"
+              />
+              <span>Reset seluruh pengeluaran juga (kembalikan ke Rp0)</span>
+            </label>
+
             <div className="flex gap-2 pt-2">
               <button
                 type="button"
@@ -722,6 +869,9 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ onOpenCashier }) => {
                 type="button"
                 onClick={async () => {
                   await resetTransactions();
+                  if (resetIncludeExpenses) {
+                    resetExpenses();
+                  }
                   setIsResetConfirmOpen(false);
                 }}
                 className="flex-1 h-10 rounded-xl bg-[#D7262E] hover:bg-rose-700 text-white font-bold text-xs transition-colors shadow-xs"

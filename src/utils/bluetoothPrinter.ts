@@ -45,12 +45,29 @@ export const ESC_POS = {
   DOUBLE_WIDTH: [ESC, 0x21, 0x20],
   NORMAL: [ESC, 0x21, 0x00],
   LINE_FEED: [0x0A],
-  // Standard Cash Drawer Kick Pulse (pin 2, 25 * 2ms = 50ms, 250 * 2ms = 500ms)
-  OPEN_CASH_DRAWER: [ESC, 0x70, 0x00, 0x19, 0xFA],
+  // Universal Cash Drawer Kick Pulse (Pin 2 & Pin 5, kompatibel 100% dengan cash drawer Xantri & merk lain)
+  OPEN_CASH_DRAWER: [
+    ESC, 0x70, 0x00, 0x32, 0xFA,
+    ESC, 0x70, 0x01, 0x32, 0xFA,
+    0x10, 0x14, 0x01, 0x00, 0x05,
+  ],
   CUT_PAPER: [GS, 0x56, 0x41, 0x03],
   // ESC/POS DLE EOT 1: Real-time printer status request (digunakan untuk keepalive anti-sleep)
   STATUS_KEEPALIVE: [0x10, 0x04, 0x01],
 };
+
+export async function getPairedBluetoothPrinters(): Promise<NativeBTDevice[]> {
+  if (isNativeAndroidApp()) {
+    try {
+      await NativePrinter.requestBluetoothPermission();
+      const res = await NativePrinter.listPrinters();
+      return res.printers || [];
+    } catch (e) {
+      console.warn('Gagal ambil list printer:', e);
+    }
+  }
+  return [];
+}
 
 export class BluetoothPrinterService {
   private device: any = null;
@@ -90,8 +107,8 @@ export class BluetoothPrinterService {
     return typeof navigator !== 'undefined' && 'bluetooth' in navigator;
   }
 
-  // Sambungkan ke printer Bluetooth ESC/POS
-  async connect(): Promise<{ success: boolean; message: string }> {
+  // Sambungkan ke printer Bluetooth ESC/POS (Xantri, RPP02N, dll)
+  async connect(targetAddress?: string): Promise<{ success: boolean; message: string }> {
     // JALUR 1: APLIKASI ANDROID NATIVE (ANTI-PUTUS)
     if (isNativeAndroidApp()) {
       try {
@@ -106,13 +123,13 @@ export class BluetoothPrinterService {
         if (!printers || printers.length === 0) {
           return {
             success: false,
-            message: 'Tidak ada printer Bluetooth yang terpasang (paired). Pasangkan RPP02N di menu Bluetooth HP terlebih dahulu.',
+            message: 'Tidak ada printer Bluetooth yang terpasang (paired). Pasangkan printer Xantri / RPP02N di menu Bluetooth HP terlebih dahulu.',
           };
         }
 
-        const savedAddr = localStorage.getItem('incha_native_bt_address');
+        const savedAddr = targetAddress || localStorage.getItem('incha_native_bt_address');
         const target = (savedAddr ? printers.find(p => p.address === savedAddr) : null)
-          || printers.find(p => /rpp|print|pos|bt/i.test(p.name))
+          || printers.find(p => /xantri|pos|print|rpp|bt/i.test(p.name))
           || printers[0];
 
         const res = await NativePrinter.connect({ address: target.address });

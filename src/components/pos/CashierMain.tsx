@@ -40,6 +40,8 @@ import {
   printTestViaRawBT,
   isNativeAndroidApp,
   openNativeAppSettings,
+  getPairedBluetoothPrinters,
+  NativeBTDevice,
 } from '../../utils/bluetoothPrinter';
 import { ReceiptModal } from './ReceiptModal';
 import { CheckoutConfirmModal } from './CheckoutConfirmModal';
@@ -84,6 +86,28 @@ export const CashierMain: React.FC = () => {
   const [btStatus, setBtStatus] = useState<string>(
     bluetoothPrinter.connected ? `Terhubung: ${bluetoothPrinter.name}` : 'Belum Terhubung'
   );
+  const [pairedDevices, setPairedDevices] = useState<NativeBTDevice[]>([]);
+  const [selectedDeviceAddress, setSelectedDeviceAddress] = useState<string>('');
+
+  const refreshPairedDevices = async () => {
+    if (isNativeAndroidApp()) {
+      const devs = await getPairedBluetoothPrinters();
+      setPairedDevices(devs);
+      if (devs.length > 0 && !selectedDeviceAddress) {
+        const saved = localStorage.getItem('incha_native_bt_address');
+        const match = (saved ? devs.find(d => d.address === saved) : null)
+          || devs.find(d => /xantri|pos|print|rpp|bt/i.test(d.name))
+          || devs[0];
+        if (match) setSelectedDeviceAddress(match.address);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (activePosTab === 'printer') {
+      refreshPairedDevices();
+    }
+  }, [activePosTab]);
 
   useEffect(() => {
     const unsubscribe = bluetoothPrinter.onStatusChange((status) => {
@@ -248,8 +272,9 @@ export const CashierMain: React.FC = () => {
   // Bluetooth Actions
   const handleConnectBt = async () => {
     setBtStatus('Mencari printer Bluetooth...');
-    const res = await bluetoothPrinter.connect();
+    const res = await bluetoothPrinter.connect(selectedDeviceAddress || undefined);
     setBtStatus(res.message);
+    refreshPairedDevices();
   };
 
   const handleTestPrint = async () => {
@@ -829,13 +854,47 @@ export const CashierMain: React.FC = () => {
               </button>
             )}
 
+            {isNativeAndroidApp() && (
+              <div className="space-y-1.5 p-3 bg-blue-50/70 border border-blue-200 rounded-xl">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-[#1B2A5C]">
+                    Pilih Printer Bluetooth (Xantri / RPP02N):
+                  </label>
+                  <button
+                    type="button"
+                    onClick={refreshPairedDevices}
+                    className="text-[11px] font-semibold text-blue-700 hover:underline"
+                  >
+                    Scan Ulang
+                  </button>
+                </div>
+                {pairedDevices.length > 0 ? (
+                  <select
+                    value={selectedDeviceAddress}
+                    onChange={(e) => setSelectedDeviceAddress(e.target.value)}
+                    className="w-full p-2.5 text-xs font-medium border border-gray-300 rounded-lg bg-white text-gray-800 focus:outline-none focus:border-[#1B2A5C]"
+                  >
+                    {pairedDevices.map((d) => (
+                      <option key={d.address} value={d.address}>
+                        {d.name} ({d.address})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-[11px] text-gray-600">
+                    Belum ada printer yang di-pair di Bluetooth HP. Buka menu Bluetooth HP dan pasangkan printer Xantri / RPP02N terlebih dahulu.
+                  </p>
+                )}
+              </div>
+            )}
+
             {(btStatus.includes('-1') || btStatus.includes('terkunci') || btStatus.includes('timeout')) && (
               <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-800 space-y-1">
                 <div className="font-bold flex items-center gap-1.5 text-amber-900">
-                  <span>💡 Tips Printer RPP02N Sibuk:</span>
+                  <span>💡 Tips Printer Xantri / RPP02N Sibuk:</span>
                 </div>
                 <p className="text-[11px] leading-relaxed">
-                  Printer thermal hanya bisa terhubung ke 1 aplikasi. Matikan tombol power printer RPP02N selama 3 detik lalu nyalakan kembali, dan pastikan aplikasi RawBT ditutup agar koneksi Bluetooth tidak rebutan.
+                  Printer thermal hanya bisa terhubung ke 1 aplikasi. Matikan tombol power printer selama 3 detik lalu nyalakan kembali, dan pastikan aplikasi RawBT ditutup agar koneksi Bluetooth tidak rebutan.
                 </p>
               </div>
             )}

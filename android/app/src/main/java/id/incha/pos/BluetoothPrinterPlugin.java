@@ -42,13 +42,41 @@ import java.util.UUID;
 public class BluetoothPrinterPlugin extends Plugin {
 
     private static final String TAG = "InchaBTPrinter";
-    // Universal Serial Port Profile (SPP) UUID for thermal ESC/POS printers (RPP02N, ZJ-58, etc.)
+    // Universal Serial Port Profile (SPP) UUID for thermal ESC/POS printers (RPP02N, EPPOS, ZJ-58, dll)
     private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
 
-    private BluetoothSocket connectedSocket = null;
-    private OutputStream outputStream = null;
-    private String connectedAddress = null;
-    private String connectedName = null;
+    // Multi-Printer Slots: Slot 1 (Struk Kasir) dan Slot 2 (Stiker Cup EPPOS)
+    private static class PrinterSlot {
+        BluetoothSocket socket = null;
+        OutputStream stream = null;
+        String address = null;
+        String name = null;
+
+        boolean isConnected() {
+            return socket != null && socket.isConnected() && stream != null;
+        }
+
+        void disconnect() {
+            try {
+                if (stream != null) stream.close();
+            } catch (Exception ignored) {}
+            try {
+                if (socket != null) socket.close();
+            } catch (Exception ignored) {}
+            stream = null;
+            socket = null;
+        }
+    }
+
+    private final PrinterSlot receiptSlot = new PrinterSlot();
+    private final PrinterSlot labelSlot = new PrinterSlot();
+
+    private PrinterSlot getSlot(String target) {
+        if ("label".equalsIgnoreCase(target)) {
+            return labelSlot;
+        }
+        return receiptSlot;
+    }
 
     @PluginMethod
     public void listPrinters(PluginCall call) {
@@ -128,6 +156,9 @@ public class BluetoothPrinterPlugin extends Plugin {
 
     private void executeConnect(PluginCall call) {
         String address = call.getString("address");
+        String target = call.getString("target", "receipt");
+        PrinterSlot slot = getSlot(target);
+
         if (address == null || address.trim().isEmpty()) {
             call.reject("Alamat printer tidak boleh kosong.");
             return;
@@ -140,99 +171,34 @@ public class BluetoothPrinterPlugin extends Plugin {
                 return;
             }
 
-            // Putuskan koneksi lama jika ada
-            disconnectInternal();
+            // Putuskan koneksi lama di slot ini jika ada
+            slot.disconnect();
 
             BluetoothDevice device = adapter.getRemoteDevice(address);
             if (adapter.isDiscovering()) {
                 adapter.cancelDiscovery();
             }
 
-            // Beri jeda 200ms agar stack Bluetooth Android stabil
-            try { Thread.sleep(200); } catch (Exception ignored) {}
+            // Beri jeda 150ms agar stack Bluetooth stabil
+            try { Thread.sleep(150); } catch (Exception ignored) {}
 
-            BluetoothSocket socket = null;
-            Exception lastError = null;
-
-            // METODE 1: Insecure RFCOMM Socket (Standar mutlak untuk printer thermal Bluetooth seperti RPP02N)
-            try {
-                Log.d(TAG, "Mencoba Metode 1: createInsecureRfcommSocketToServiceRecord...");
-                socket = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID);
-                socket.connect();
-            } catch (Exception e1) {
-                lastError = e1;
-                Log.w(TAG, "Metode 1 (Insecure SPP) gagal: " + e1.getMessage());
-                try { if (socket != null) socket.close(); } catch (Exception ignored) {}
-                socket = null;
-            }
-
-            // METODE 2: Insecure RFCOMM Channel 1 via Reflection
-            if (socket == null || !socket.isConnected()) {
-                try {
-                    Log.d(TAG, "Mencoba Metode 2: createInsecureRfcommSocket Channel 1...");
-                    Method m = device.getClass().getMethod("createInsecureRfcommSocket", new Class[] { int.class });
-                    socket = (BluetoothSocket) m.invoke(device, 1);
-                    if (socket != null) {
-                        socket.connect();
-                    }
-                } catch (Exception e2) {
-                    lastError = e2;
-                    Log.w(TAG, "Metode 2 (Insecure Channel 1) gagal: " + e2.getMessage());
-                    try { if (socket != null) socket.close(); } catch (Exception ignored) {}
-                    socket = null;
-                }
-            }
-
-            // METODE 3: Secure RFCOMM SPP (Fallback)
-            if (socket == null || !socket.isConnected()) {
-                try {
-                    Log.d(TAG, "Mencoba Metode 3: createRfcommSocketToServiceRecord...");
-                    socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
-                    socket.connect();
-                } catch (Exception e3) {
-                    lastError = e3;
-                    Log.w(TAG, "Metode 3 (Secure SPP) gagal: " + e3.getMessage());
-                    try { if (socket != null) socket.close(); } catch (Exception ignored) {}
-                    socket = null;
-                }
-            }
-
-            // METODE 4: Secure RFCOMM Channel 1 via Reflection
-            if (socket == null || !socket.isConnected()) {
-                try {
-                    Log.d(TAG, "Mencoba Metode 4: createRfcommSocket Channel 1...");
-                    Method m = device.getClass().getMethod("createRfcommSocket", new Class[] { int.class });
-                    socket = (BluetoothSocket) m.invoke(device, 1);
-                    if (socket != null) {
-                        socket.connect();
-                    }
-                } catch (Exception e4) {
-                    lastError = e4;
-                    Log.w(TAG, "Metode 4 (Secure Channel 1) gagal: " + e4.getMessage());
-                    try { if (socket != null) socket.close(); } catch (Exception ignored) {}
-                    socket = null;
-                }
-            }
+            BluetoothSocket socket = openSocket(device);
 
             if (socket == null || !socket.isConnected()) {
-                String errorMsg = lastError != null ? lastError.getMessage() : "Koneksi ditolak.";
-                if (errorMsg.contains("-1") || errorMsg.contains("closed") || errorMsg.contains("timeout")) {
-                    call.reject("Printer RPP02N sedang terkunci oleh aplikasi lain (seperti RawBT) atau printer perlu di-restart. Matikan saklar power printer lalu hidupkan lagi, kemudian klik Sambungkan.");
-                } else {
-                    call.reject("Gagal tersambung ke printer: " + errorMsg);
-                }
+                call.reject("Gagal tersambung ke printer (" + (device.getName() != null ? device.getName() : address) + "). Pastikan printer menyala.");
                 return;
             }
 
-            connectedSocket = socket;
-            outputStream = socket.getOutputStream();
-            connectedAddress = address;
-            connectedName = device.getName() != null ? device.getName() : "RPP02N";
+            slot.socket = socket;
+            slot.stream = socket.getOutputStream();
+            slot.address = address;
+            slot.name = device.getName() != null ? device.getName() : ("label".equalsIgnoreCase(target) ? "EPPOS Label" : "RPP02N");
 
             JSObject ret = new JSObject();
             ret.put("success", true);
-            ret.put("name", connectedName);
-            ret.put("address", connectedAddress);
+            ret.put("target", target);
+            ret.put("name", slot.name);
+            ret.put("address", slot.address);
             call.resolve(ret);
         } catch (SecurityException se) {
             call.reject("Izin Bluetooth diperlukan: " + se.getMessage());
@@ -244,42 +210,49 @@ public class BluetoothPrinterPlugin extends Plugin {
     @PluginMethod
     public void printBytes(PluginCall call) {
         String base64 = call.getString("base64");
+        String target = call.getString("target", "receipt");
+        PrinterSlot slot = getSlot(target);
+
         if (base64 == null || base64.isEmpty()) {
-            call.reject("Data cetak struk tidak boleh kosong.");
+            call.reject("Data cetak tidak boleh kosong.");
             return;
         }
 
-        // Cek koneksi aktif
-        if (connectedSocket == null || !connectedSocket.isConnected() || outputStream == null) {
-            // Percobaan auto-reconnect jika pernah tersambung
-            if (connectedAddress != null) {
+        // Cek koneksi aktif pada slot target
+        if (!slot.isConnected()) {
+            // Percobaan auto-reconnect jika pernah tersambung di slot ini
+            if (slot.address != null) {
                 try {
                     BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-                    BluetoothDevice device = adapter.getRemoteDevice(connectedAddress);
-                    if (adapter.isDiscovering()) {
-                        adapter.cancelDiscovery();
+                    if (adapter != null && adapter.isEnabled()) {
+                        BluetoothDevice device = adapter.getRemoteDevice(slot.address);
+                        if (adapter.isDiscovering()) {
+                            adapter.cancelDiscovery();
+                        }
+                        BluetoothSocket socket = openSocket(device);
+                        if (socket != null && socket.isConnected()) {
+                            slot.socket = socket;
+                            slot.stream = socket.getOutputStream();
+                        }
                     }
-                    BluetoothSocket socket = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID);
-                    socket.connect();
-                    connectedSocket = socket;
-                    outputStream = socket.getOutputStream();
-                } catch (Exception reErr) {
-                    call.reject("Printer terputus. Nyalakan printer dan klik Sambungkan.");
-                    return;
-                }
-            } else {
-                call.reject("Printer belum tersambung.");
-                return;
+                } catch (Exception ignored) {}
             }
+        }
+
+        if (!slot.isConnected()) {
+            String targetLabel = "label".equalsIgnoreCase(target) ? "Printer Stiker Cup (EPPOS)" : "Printer Struk Kasir";
+            call.reject(targetLabel + " belum tersambung. Silakan sambungkan di Pengaturan Printer.");
+            return;
         }
 
         try {
             byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
-            outputStream.write(bytes);
-            outputStream.flush();
+            slot.stream.write(bytes);
+            slot.stream.flush();
 
             JSObject ret = new JSObject();
             ret.put("success", true);
+            ret.put("target", target);
             call.resolve(ret);
         } catch (Exception e) {
             call.reject("Gagal mengirim data cetak ke printer: " + e.getMessage());
@@ -288,17 +261,37 @@ public class BluetoothPrinterPlugin extends Plugin {
 
     @PluginMethod
     public void isConnected(PluginCall call) {
-        boolean connected = connectedSocket != null && connectedSocket.isConnected();
+        String target = call.getString("target", "receipt");
+        PrinterSlot slot = getSlot(target);
+
         JSObject ret = new JSObject();
-        ret.put("connected", connected);
-        ret.put("name", connectedName);
-        ret.put("address", connectedAddress);
+        ret.put("connected", slot.isConnected());
+        ret.put("name", slot.name);
+        ret.put("address", slot.address);
+
+        ret.put("receiptConnected", receiptSlot.isConnected());
+        ret.put("receiptName", receiptSlot.name);
+        ret.put("receiptAddress", receiptSlot.address);
+
+        ret.put("labelConnected", labelSlot.isConnected());
+        ret.put("labelName", labelSlot.name);
+        ret.put("labelAddress", labelSlot.address);
+
         call.resolve(ret);
     }
 
     @PluginMethod
     public void disconnect(PluginCall call) {
-        disconnectInternal();
+        String target = call.getString("target", "all");
+        if ("all".equalsIgnoreCase(target)) {
+            receiptSlot.disconnect();
+            labelSlot.disconnect();
+        } else if ("label".equalsIgnoreCase(target)) {
+            labelSlot.disconnect();
+        } else {
+            receiptSlot.disconnect();
+        }
+
         JSObject ret = new JSObject();
         ret.put("success", true);
         call.resolve(ret);
@@ -341,18 +334,60 @@ public class BluetoothPrinterPlugin extends Plugin {
         }
     }
 
-    private void disconnectInternal() {
+    // Helper koneksi socket dengan 4 fallback methods anti-gagal
+    private BluetoothSocket openSocket(BluetoothDevice device) {
+        BluetoothSocket socket = null;
+
+        // METODE 1: Insecure RFCOMM Socket SPP
         try {
-            if (outputStream != null) {
-                outputStream.close();
-            }
-        } catch (Exception ignored) {}
+            socket = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID);
+            socket.connect();
+            return socket;
+        } catch (Exception e1) {
+            Log.w(TAG, "Metode 1 (Insecure SPP) gagal: " + e1.getMessage());
+            try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+            socket = null;
+        }
+
+        // METODE 2: Insecure RFCOMM Channel 1 via Reflection
         try {
-            if (connectedSocket != null) {
-                connectedSocket.close();
+            Method m = device.getClass().getMethod("createInsecureRfcommSocket", new Class[] { int.class });
+            socket = (BluetoothSocket) m.invoke(device, 1);
+            if (socket != null) {
+                socket.connect();
+                return socket;
             }
-        } catch (Exception ignored) {}
-        outputStream = null;
-        connectedSocket = null;
+        } catch (Exception e2) {
+            Log.w(TAG, "Metode 2 (Insecure Channel 1) gagal: " + e2.getMessage());
+            try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+            socket = null;
+        }
+
+        // METODE 3: Secure RFCOMM SPP
+        try {
+            socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
+            socket.connect();
+            return socket;
+        } catch (Exception e3) {
+            Log.w(TAG, "Metode 3 (Secure SPP) gagal: " + e3.getMessage());
+            try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+            socket = null;
+        }
+
+        // METODE 4: Secure RFCOMM Channel 1 via Reflection
+        try {
+            Method m = device.getClass().getMethod("createRfcommSocket", new Class[] { int.class });
+            socket = (BluetoothSocket) m.invoke(device, 1);
+            if (socket != null) {
+                socket.connect();
+                return socket;
+            }
+        } catch (Exception e4) {
+            Log.w(TAG, "Metode 4 (Secure Channel 1) gagal: " + e4.getMessage());
+            try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+            socket = null;
+        }
+
+        return null;
     }
 }

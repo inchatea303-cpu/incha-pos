@@ -9,10 +9,25 @@ export interface NativeBTDevice {
 
 export interface NativeBluetoothPrinterPlugin {
   listPrinters(): Promise<{ printers: NativeBTDevice[] }>;
-  connect(options: { address: string }): Promise<{ success: boolean; name: string; address: string }>;
-  printBytes(options: { base64: string }): Promise<{ success: boolean }>;
-  isConnected(): Promise<{ connected: boolean; name?: string; address?: string }>;
-  disconnect(): Promise<{ success: boolean }>;
+  connect(options: { address: string; target?: 'receipt' | 'label' }): Promise<{
+    success: boolean;
+    target?: string;
+    name: string;
+    address: string;
+  }>;
+  printBytes(options: { base64: string; target?: 'receipt' | 'label' }): Promise<{ success: boolean; target?: string }>;
+  isConnected(options?: { target?: 'receipt' | 'label' }): Promise<{
+    connected: boolean;
+    name?: string;
+    address?: string;
+    receiptConnected?: boolean;
+    receiptName?: string;
+    receiptAddress?: string;
+    labelConnected?: boolean;
+    labelName?: string;
+    labelAddress?: string;
+  }>;
+  disconnect(options?: { target?: 'receipt' | 'label' | 'all' }): Promise<{ success: boolean }>;
   requestBluetoothPermission(): Promise<{ granted: boolean }>;
   openSettings(): Promise<{ success: boolean }>;
 }
@@ -43,16 +58,17 @@ export const ESC_POS = {
   BOLD_OFF: [ESC, 0x45, 0x00],
   DOUBLE_HEIGHT: [ESC, 0x21, 0x10],
   DOUBLE_WIDTH: [ESC, 0x21, 0x20],
+  DOUBLE_BOTH: [ESC, 0x21, 0x30],
   NORMAL: [ESC, 0x21, 0x00],
   LINE_FEED: [0x0A],
-  // Universal Cash Drawer Kick Pulse (Pin 2 & Pin 5, kompatibel 100% dengan cash drawer Xantri & merk lain)
+  FORM_FEED: [0x0C], // Advance to label gap (EPPOS / Label mode)
+  // Universal Cash Drawer Kick Pulse (Pin 2 & Pin 5)
   OPEN_CASH_DRAWER: [
     ESC, 0x70, 0x00, 0x32, 0xFA,
     ESC, 0x70, 0x01, 0x32, 0xFA,
     0x10, 0x14, 0x01, 0x00, 0x05,
   ],
   CUT_PAPER: [GS, 0x56, 0x41, 0x03],
-  // ESC/POS DLE EOT 1: Real-time printer status request (digunakan untuk keepalive anti-sleep)
   STATUS_KEEPALIVE: [0x10, 0x04, 0x01],
 };
 
@@ -69,27 +85,57 @@ export async function getPairedBluetoothPrinters(): Promise<NativeBTDevice[]> {
   return [];
 }
 
+export function extractQueueNumber(invoiceNumber: string): string {
+  if (!invoiceNumber) return '#001';
+  const parts = invoiceNumber.split('-');
+  const last = parts[parts.length - 1];
+  if (/^\d+$/.test(last)) {
+    return '#' + last.slice(-3).padStart(3, '0');
+  }
+  return '#' + (invoiceNumber.slice(-3) || '001');
+}
+
 export class BluetoothPrinterService {
-  private device: any = null;
-  private characteristic: any = null;
-  private isConnected: boolean = false;
-  private printerName: string = '';
-  private heartbeatTimer: any = null;
-  private reconnecting: boolean = false;
+  // Web Bluetooth fallback instances
+  private receiptDevice: any = null;
+  private receiptCharacteristic: any = null;
+  private isReceiptConnected: boolean = false;
+  private receiptPrinterName: string = '';
+
+  private labelDevice: any = null;
+  private labelCharacteristic: any = null;
+  private isLabelConnected: boolean = false;
+  private labelPrinterName: string = '';
+
   private statusListeners: Array<(status: string, connected: boolean) => void> = [];
 
   get connected(): boolean {
-    if (isNativeAndroidApp()) {
-      return this.isConnected;
-    }
-    return this.isConnected && !!this.device?.gatt?.connected;
+    return this.isReceiptConnected || this.isLabelConnected;
+  }
+
+  get receiptConnected(): boolean {
+    return this.isReceiptConnected;
+  }
+
+  get labelConnected(): boolean {
+    return this.isLabelConnected;
   }
 
   get name(): string {
-    return this.printerName;
+    const parts = [];
+    if (this.receiptPrinterName) parts.push(`Kasir: ${this.receiptPrinterName}`);
+    if (this.labelPrinterName) parts.push(`Cup: ${this.labelPrinterName}`);
+    return parts.length > 0 ? parts.join(' | ') : 'Belum Terhubung';
   }
 
-  // Daftarkan listener status untuk sinkronisasi UI
+  get receiptName(): string {
+    return this.receiptPrinterName;
+  }
+
+  get labelName(): string {
+    return this.labelPrinterName;
+  }
+
   onStatusChange(listener: (status: string, connected: boolean) => void): () => void {
     this.statusListeners.push(listener);
     return () => {
@@ -101,18 +147,32 @@ export class BluetoothPrinterService {
     this.statusListeners.forEach((l) => l(status, connected));
   }
 
-  // Cek apakah browser / aplikasi mendukung Bluetooth
   isSupported(): boolean {
     if (isNativeAndroidApp()) return true;
     return typeof navigator !== 'undefined' && 'bluetooth' in navigator;
   }
 
-  // Sambungkan ke printer Bluetooth ESC/POS (Xantri, RPP02N, dll)
-  async connect(targetAddress?: string): Promise<{ success: boolean; message: string }> {
-    // JALUR 1: APLIKASI ANDROID NATIVE (ANTI-PUTUS)
+  // Sambungkan Printer Struk Kasir (Slot 1)
+  async connectReceipt(targetAddress?: string): Promise<{ success: boolean; message: string }> {
+    return this.connect(targetAddress, 'receipt');
+  }
+
+  // Sambungkan Printer Stiker Cup EPPOS (Slot 2)
+  async connectLabel(targetAddress?: string): Promise<{ success: boolean; message: string }> {
+    return this.connect(targetAddress, 'label');
+  }
+
+  // Sambungkan ke printer Bluetooth ESC/POS (Receipt atau Label)
+  async connect(
+    targetAddress?: string,
+    target: 'receipt' | 'label' = 'receipt'
+  ): Promise<{ success: boolean; message: string }> {
+    const isLabel = target === 'label';
+    const targetTitle = isLabel ? 'Stiker Cup (EPPOS)' : 'Struk Kasir';
+
+    // JALUR 1: APLIKASI ANDROID NATIVE
     if (isNativeAndroidApp()) {
       try {
-        // 1. Minta izin Bluetooth Android 12+ (BLUETOOTH_CONNECT & SCAN)
         try {
           await NativePrinter.requestBluetoothPermission();
         } catch (pErr) {
@@ -123,32 +183,45 @@ export class BluetoothPrinterService {
         if (!printers || printers.length === 0) {
           return {
             success: false,
-            message: 'Tidak ada printer Bluetooth yang terpasang (paired). Pasangkan printer Xantri / RPP02N di menu Bluetooth HP terlebih dahulu.',
+            message: `Tidak ada printer Bluetooth yang terpasang (paired). Pasangkan printer di menu Bluetooth HP terlebih dahulu.`,
           };
         }
 
-        const savedAddr = targetAddress || localStorage.getItem('incha_native_bt_address');
-        const target = (savedAddr ? printers.find(p => p.address === savedAddr) : null)
-          || printers.find(p => /xantri|pos|print|rpp|bt/i.test(p.name))
-          || printers[0];
+        const storageKey = isLabel ? 'incha_native_bt_label_address' : 'incha_native_bt_receipt_address';
+        const savedAddr = targetAddress || localStorage.getItem(storageKey);
 
-        const res = await NativePrinter.connect({ address: target.address });
-        this.isConnected = true;
-        this.printerName = res.name || target.name;
-        localStorage.setItem('incha_native_bt_address', target.address);
-        localStorage.setItem('incha_bt_device_name', this.printerName);
-        this.notify(`Terhubung Native: ${this.printerName} (Anti-Putus)`, true);
-        return {
-          success: true,
-          message: `Terhubung Native: ${this.printerName} (Koneksi Langsung Anti-Putus)`,
-        };
+        const targetDevice =
+          (savedAddr ? printers.find((p) => p.address === savedAddr) : null) ||
+          (isLabel
+            ? printers.find((p) => /eppos|label|cup|sticker|ep58/i.test(p.name)) || printers[0]
+            : printers.find((p) => /xantri|pos|print|rpp|bt/i.test(p.name)) || printers[0]);
+
+        const res = await NativePrinter.connect({
+          address: targetDevice.address,
+          target,
+        });
+
+        if (isLabel) {
+          this.isLabelConnected = true;
+          this.labelPrinterName = res.name || targetDevice.name;
+          localStorage.setItem(storageKey, targetDevice.address);
+          localStorage.setItem('incha_bt_label_name', this.labelPrinterName);
+        } else {
+          this.isReceiptConnected = true;
+          this.receiptPrinterName = res.name || targetDevice.name;
+          localStorage.setItem(storageKey, targetDevice.address);
+          localStorage.setItem('incha_bt_receipt_name', this.receiptPrinterName);
+        }
+
+        const msg = `Terhubung: ${isLabel ? this.labelPrinterName : this.receiptPrinterName} (${targetTitle})`;
+        this.notify(msg, true);
+        return { success: true, message: msg };
       } catch (err: any) {
-        this.isConnected = false;
-        this.notify(err.message || 'Gagal koneksi native Bluetooth.', false);
-        return {
-          success: false,
-          message: err.message || 'Gagal tersambung ke printer.',
-        };
+        if (isLabel) this.isLabelConnected = false;
+        else this.isReceiptConnected = false;
+        const msg = err.message || `Gagal koneksi printer ${targetTitle}.`;
+        this.notify(msg, false);
+        return { success: false, message: msg };
       }
     }
 
@@ -156,280 +229,91 @@ export class BluetoothPrinterService {
     if (!this.isSupported()) {
       return {
         success: false,
-        message: 'Web Bluetooth tidak didukung pada browser ini. Gunakan Google Chrome di Android atau buka via Aplikasi APK INCHA POS.',
+        message: 'Web Bluetooth tidak didukung pada browser ini. Gunakan Google Chrome di Android atau Aplikasi APK INCHA POS.',
       };
     }
 
     try {
-      // Minta izin perangkat Bluetooth dengan filter service printer umum
       const device = await (navigator as any).bluetooth.requestDevice({
         acceptAllDevices: true,
         optionalServices: [
-          '000018f0-0000-1000-8000-00805f9b34fb', // Standard POS Printer
-          'e7810a06-736b-4f3a-8140-7464607e6012', // ESC/POS Custom
-          '49535343-fe7d-4ae5-8fa9-9fafd205e455', // ISSC Transparent (Goojprt/Xprinter)
-          '0000ffe0-0000-1000-8000-00805f9b34fb', // Standard Serial / HM-10
-          '0000fff0-0000-1000-8000-00805f9b34fb', // Generic Mini Thermal POS
-          '0000ff00-0000-1000-8000-00805f9b34fb', // POS-58 / RPP02N
-          '0000fee7-0000-1000-8000-00805f9b34fb', // Tencent / Iware
-          '000018f1-0000-1000-8000-00805f9b34fb',
-          '0000af30-0000-1000-8000-00805f9b34fb',
+          '000018f0-0000-1000-8000-00805f9b34fb',
+          'e7810a06-736b-4f3a-8140-7464607e6012',
+          '49535343-fe7d-4ae5-8fa9-9fafd205e455',
+          '0000ffe0-0000-1000-8000-00805f9b34fb',
+          '0000fff0-0000-1000-8000-00805f9b34fb',
+          '0000ff00-0000-1000-8000-00805f9b34fb',
+          '0000fee7-0000-1000-8000-00805f9b34fb',
         ],
       });
 
-      this.device = device;
-      this.printerName = device.name || 'Printer Bluetooth ESC/POS';
-
-      // Pasang event listener saat koneksi GATT terputus agar otomatis reconnect
-      device.addEventListener('gattserverdisconnected', () => {
-        console.warn('[BT] Koneksi Bluetooth terputus dari printer.');
-        this.isConnected = false;
-        this.characteristic = null;
-        this.stopHeartbeat();
-        this.notify(`Terputus dari ${this.printerName} (Mencoba sambung ulang...)`, false);
-        this.autoReconnect();
-      });
-
       const server = await device.gatt.connect();
+      const characteristic = await this.discoverWritableCharacteristic(server);
 
-      // Cari service & characteristic untuk menulis data
-      const success = await this.discoverWritableCharacteristic(server);
-      
-      // Simpan identitas perangkat agar bisa auto-connect saat refresh tanpa dialog izin
-      try {
-        if (device.id) {
-          localStorage.setItem('incha_bt_device_id', device.id);
-          localStorage.setItem('incha_bt_device_name', this.printerName);
-        }
-      } catch {}
-
-      if (success) {
-        this.isConnected = true;
-        this.startHeartbeat();
-        this.notify(`Terhubung: ${this.printerName}`, true);
-        return {
-          success: true,
-          message: `Terhubung ke ${this.printerName}`,
-        };
+      if (isLabel) {
+        this.labelDevice = device;
+        this.labelCharacteristic = characteristic;
+        this.isLabelConnected = true;
+        this.labelPrinterName = device.name || 'EPPOS Label';
+        try { localStorage.setItem('incha_bt_label_id', device.id); } catch {}
+      } else {
+        this.receiptDevice = device;
+        this.receiptCharacteristic = characteristic;
+        this.isReceiptConnected = true;
+        this.receiptPrinterName = device.name || 'Printer Struk';
+        try { localStorage.setItem('incha_bt_receipt_id', device.id); } catch {}
       }
 
-      this.isConnected = true;
-      this.startHeartbeat();
-      this.notify(`Terhubung: ${this.printerName} (Mode Standar)`, true);
-      return {
-        success: true,
-        message: `Terhubung ke ${this.printerName} (Mode Standar)`,
-      };
-    } catch (error: any) {
-      this.isConnected = false;
-      this.notify(error.message || 'Gagal tersambung ke printer.', false);
-      return {
-        success: false,
-        message: error.message || 'Gagal menyambungkan ke printer Bluetooth.',
-      };
+      const msg = `Terhubung Web: ${device.name || targetTitle}`;
+      this.notify(msg, true);
+      return { success: true, message: msg };
+    } catch (err: any) {
+      return { success: false, message: err.message || 'Gagal koneksi Bluetooth.' };
     }
   }
 
-  // Coba sambung otomatis di latar belakang saat halaman dimuat/refresh (tanpa popup izin)
   async tryAutoConnectOnLoad(): Promise<boolean> {
     if (isNativeAndroidApp()) {
       try {
         const status = await NativePrinter.isConnected();
-        if (status.connected) {
-          this.isConnected = true;
-          this.printerName = status.name || 'Printer RPP02N';
-          this.notify(`Terhubung Native: ${this.printerName} (Anti-Putus)`, true);
-          return true;
-        }
-
-        const savedAddr = localStorage.getItem('incha_native_bt_address');
-        if (savedAddr) {
-          const res = await NativePrinter.connect({ address: savedAddr });
-          this.isConnected = true;
-          this.printerName = res.name || 'RPP02N';
-          this.notify(`Terhubung Native: ${this.printerName} (Anti-Putus)`, true);
-          return true;
-        }
-      } catch (e) {
-        console.warn('[BT Native] Auto-connect on load:', e);
-      }
-      return false;
-    }
-
-    if (!this.isSupported() || this.isConnected) return false;
-
-    try {
-      const bluetooth = (navigator as any).bluetooth;
-      if (!bluetooth || typeof bluetooth.getDevices !== 'function') {
-        return false;
-      }
-
-      const devices: any[] = await bluetooth.getDevices();
-      if (!devices || devices.length === 0) return false;
-
-      const savedId = localStorage.getItem('incha_bt_device_id');
-      const targetDevice = savedId
-        ? devices.find((d) => d.id === savedId) || devices[0]
-        : devices[0];
-
-      if (!targetDevice) return false;
-
-      console.log('[BT] Auto-connect on load menemukan printer:', targetDevice.name);
-      this.device = targetDevice;
-      this.printerName = targetDevice.name || 'Printer Bluetooth ESC/POS';
-
-      targetDevice.addEventListener('gattserverdisconnected', () => {
-        console.warn('[BT] Koneksi Bluetooth terputus dari printer.');
-        this.isConnected = false;
-        this.characteristic = null;
-        this.stopHeartbeat();
-        this.notify(`Terputus dari ${this.printerName} (Mencoba sambung ulang...)`, false);
-        this.autoReconnect();
-      });
-
-      const server = await targetDevice.gatt.connect();
-      const success = await this.discoverWritableCharacteristic(server);
-      if (success) {
-        this.isConnected = true;
-        this.startHeartbeat();
-        this.notify(`Terhubung otomatis: ${this.printerName}`, true);
-        return true;
-      }
-    } catch (e) {
-      console.warn('[BT] Auto-connect on load belum berhasil:', e);
-    }
-    return false;
-  }
-
-  // Cari characteristic yang bisa ditulis
-  private async discoverWritableCharacteristic(server: any): Promise<boolean> {
-    try {
-      const services = await server.getPrimaryServices();
-      for (const service of services) {
-        try {
-          const characteristics = await service.getCharacteristics();
-          for (const char of characteristics) {
-            if (char.properties.write || char.properties.writeWithoutResponse) {
-              this.characteristic = char;
-              return true;
-            }
-          }
-        } catch {
-          continue;
-        }
-      }
-      return false;
-    } catch (e) {
-      console.warn('[BT] Gagal mendeteksi characteristic:', e);
-      return false;
-    }
-  }
-
-  // Sambung ulang otomatis di latar belakang tanpa meminta dialog izin ulang
-  private async autoReconnect(retries: number = 3): Promise<boolean> {
-    if (this.reconnecting || !this.device?.gatt) return false;
-    this.reconnecting = true;
-
-    for (let i = 1; i <= retries; i++) {
-      try {
-        console.log(`[BT] Mencoba auto-reconnect ke ${this.printerName} (Percobaan ${i}/${retries})...`);
-        const server = await this.device.gatt.connect();
-        const found = await this.discoverWritableCharacteristic(server);
-        if (found) {
-          this.isConnected = true;
-          this.reconnecting = false;
-          this.startHeartbeat();
-          this.notify(`Terhubung kembali ke ${this.printerName}`, true);
-          return true;
-        }
-      } catch (err) {
-        console.warn(`[BT] Auto-reconnect percobaan ${i} gagal:`, err);
-        await new Promise((r) => setTimeout(r, 1500));
-      }
-    }
-
-    this.reconnecting = false;
-    this.notify(`Gagal tersambung kembali. Nyalakan printer dan klik Hubungkan.`, false);
-    return false;
-  }
-
-  // Pastikan koneksi aktif sebelum mengirim data (silent re-connection)
-  async ensureConnected(): Promise<boolean> {
-    if (this.isConnected && this.characteristic && this.device?.gatt?.connected) {
-      return true;
-    }
-    if (this.device?.gatt) {
-      console.log('[BT] Koneksi idle/terputus, menyambungkan ulang sebelum cetak...');
-      return await this.autoReconnect(2);
-    }
-    return false;
-  }
-
-  // Heartbeat keep-alive (setiap 25 detik mengirim pulse status ringan tanpa mencetak kertas)
-  // Mencegah chipset Bluetooth dan printer masuk ke mode deep sleep / sleep timer
-  private startHeartbeat() {
-    this.stopHeartbeat();
-    this.heartbeatTimer = setInterval(async () => {
-      if (this.device?.gatt?.connected && this.characteristic) {
-        try {
-          // ESC/POS DLE EOT 1 - Perintah ringan cek status printer (tidak keluar kertas / tidak bunyi)
-          const ping = new Uint8Array(ESC_POS.STATUS_KEEPALIVE);
-          if (this.characteristic.properties.writeWithoutResponse) {
-            await this.characteristic.writeValueWithoutResponse(ping);
-          } else {
-            await this.characteristic.writeValue(ping);
-          }
-        } catch (e) {
-          console.warn('[BT] Heartbeat ping gagal, koneksi mungkin terputus:', e);
-          this.isConnected = false;
-          this.stopHeartbeat();
-          this.autoReconnect();
-        }
-      }
-    }, 25000);
-  }
-
-  private stopHeartbeat() {
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
-  }
-
-  // Kirim data byte ke printer dengan throttling agar buffer printer tidak overflow
-  async sendCommand(bytes: number[]): Promise<boolean> {
-    // Pastikan koneksi aktif dulu sebelum kirim (auto-reconnect jika sempat terputus)
-    const isReady = await this.ensureConnected();
-    if (!isReady || !this.characteristic) {
-      console.warn('Printer tidak terhubung, perintah dicatat secara virtual.');
-      return false;
-    }
-
-    try {
-      const buffer = new Uint8Array(bytes);
-      // Chunk ukuran 48 byte dengan jeda 35ms untuk mencegah buffer UART printer 58mm meluap
-      const CHUNK_SIZE = 48;
-      for (let i = 0; i < buffer.length; i += CHUNK_SIZE) {
-        const chunk = buffer.slice(i, i + CHUNK_SIZE);
-        if (this.characteristic.properties.writeWithoutResponse) {
-          await this.characteristic.writeValueWithoutResponse(chunk);
+        if (status.receiptConnected) {
+          this.isReceiptConnected = true;
+          this.receiptPrinterName = status.receiptName || 'Printer Kasir';
         } else {
-          await this.characteristic.writeValue(chunk);
+          const savedReceiptAddr = localStorage.getItem('incha_native_bt_receipt_address') || localStorage.getItem('incha_native_bt_address');
+          if (savedReceiptAddr) {
+            try {
+              const res = await NativePrinter.connect({ address: savedReceiptAddr, target: 'receipt' });
+              this.isReceiptConnected = true;
+              this.receiptPrinterName = res.name || 'Printer Kasir';
+            } catch (e) {}
+          }
         }
-        // Delay kecil agar mikrokontroler printer sempat mencetak dan mengosongkan buffer RX
-        await new Promise((resolve) => setTimeout(resolve, 35));
+
+        if (status.labelConnected) {
+          this.isLabelConnected = true;
+          this.labelPrinterName = status.labelName || 'EPPOS Cup Label';
+        } else {
+          const savedLabelAddr = localStorage.getItem('incha_native_bt_label_address');
+          if (savedLabelAddr) {
+            try {
+              const res = await NativePrinter.connect({ address: savedLabelAddr, target: 'label' });
+              this.isLabelConnected = true;
+              this.labelPrinterName = res.name || 'EPPOS Cup Label';
+            } catch (e) {}
+          }
+        }
+
+        this.notify(this.name, this.connected);
+        return this.connected;
+      } catch (e) {
+        console.warn('[BT AutoConnect] Error:', e);
       }
-      return true;
-    } catch (err) {
-      console.error('Gagal mengirim data ke printer:', err);
-      // Jika terjadi error saat transfer, tandai koneksi dan coba pulihkan
-      this.isConnected = false;
-      this.autoReconnect(1);
-      return false;
     }
+    return false;
   }
 
-  // Buka Laci Kas (Cash Drawer Pulse)
+  // Buka Laci Kas
   async openCashDrawer(): Promise<{ success: boolean; message: string }> {
     if (isNativeAndroidApp()) {
       try {
@@ -437,31 +321,22 @@ export class BluetoothPrinterService {
         for (let i = 0; i < ESC_POS.OPEN_CASH_DRAWER.length; i++) {
           binary += String.fromCharCode(ESC_POS.OPEN_CASH_DRAWER[i]);
         }
-        await NativePrinter.printBytes({ base64: btoa(binary) });
-        return { success: true, message: 'Perintah buka laci uang kasir terkirim (Native).' };
+        await NativePrinter.printBytes({ base64: btoa(binary), target: 'receipt' });
+        return { success: true, message: 'Perintah buka laci kasir terkirim.' };
       } catch (e: any) {
         return { success: false, message: e.message || 'Gagal buka laci.' };
       }
     }
-
-    const success = await this.sendCommand(ESC_POS.OPEN_CASH_DRAWER);
-    return {
-      success,
-      message: success
-        ? 'Perintah buka laci uang kasir terkirim.'
-        : 'Printer Bluetooth belum terhubung.',
-    };
+    return { success: false, message: 'Fitur buka laci kas aktif di aplikasi Android.' };
   }
 
-  // Cetak Struk Transaksi Standar 58mm
+  // Cetak Struk Kasir (Printer Struk)
   async printReceipt(
     transaction: SalesTransaction,
     openDrawerIfCash: boolean = true
-  ): Promise<{ success: boolean; receiptText: string }> {
-    // 1. Susun representasi teks struk (32 karakter per baris untuk kertas 58mm)
+  ): Promise<{ success: boolean; receiptText: string; error?: string }> {
     const receiptText = generateReceiptText(transaction);
 
-    // JALUR 1: APLIKASI ANDROID NATIVE APK (ANTI-PUTUS)
     if (isNativeAndroidApp()) {
       try {
         const encoder = new TextEncoder();
@@ -480,45 +355,214 @@ export class BluetoothPrinterService {
           binary += String.fromCharCode(commands[i]);
         }
 
-        const res = await NativePrinter.printBytes({ base64: btoa(binary) });
+        const res = await NativePrinter.printBytes({
+          base64: btoa(binary),
+          target: 'receipt',
+        });
         return { success: res.success, receiptText };
       } catch (err: any) {
-        console.warn('[BT Native Print] Gagal cetak native:', err);
-        return { success: false, receiptText };
+        console.warn('[BT Print Receipt] Gagal:', err);
+        return { success: false, receiptText, error: err.message };
       }
     }
 
-    // JALUR 2: WEB BROWSER
-    const isReady = await this.ensureConnected();
-    if (isReady && this.characteristic) {
-      const encoder = new TextEncoder();
-      const textBytes = Array.from(encoder.encode(receiptText + '\n\n\n\n'));
-
-      // Laci kas HANYA terbuka jika pembayaran TUNAI (QRIS tidak buka laci)
-      const shouldOpenDrawer = openDrawerIfCash && transaction.paymentMethod === 'cash';
-
-      const commands = [
-        ...ESC_POS.INIT,
-        ...ESC_POS.ALIGN_LEFT,
-        ...textBytes,
-        ...(shouldOpenDrawer ? ESC_POS.OPEN_CASH_DRAWER : []),
-        ...ESC_POS.CUT_PAPER,
-      ];
-
-      const success = await this.sendCommand(commands);
-      return { success, receiptText };
+    // Web Bluetooth fallback
+    if (this.isReceiptConnected && this.receiptCharacteristic) {
+      try {
+        const encoder = new TextEncoder();
+        const textBytes = Array.from(encoder.encode(receiptText + '\n\n\n\n'));
+        const shouldOpenDrawer = openDrawerIfCash && transaction.paymentMethod === 'cash';
+        const commands = [
+          ...ESC_POS.INIT,
+          ...ESC_POS.ALIGN_LEFT,
+          ...textBytes,
+          ...(shouldOpenDrawer ? ESC_POS.OPEN_CASH_DRAWER : []),
+          ...ESC_POS.CUT_PAPER,
+        ];
+        await this.sendWebCommand(commands, this.receiptCharacteristic);
+        return { success: true, receiptText };
+      } catch (err: any) {
+        return { success: false, receiptText, error: err.message };
+      }
     }
 
-    // Jika Bluetooth belum dipasangkan, tetap kirim representasi teks agar kasir dapat melihat preview
     return { success: false, receiptText };
   }
 
-  // Tes Printer
+  // Cetak Stiker Cup ke Printer EPPOS (Dicetak per cup)
+  async printCupLabels(
+    transaction: SalesTransaction
+  ): Promise<{ success: boolean; printedCups: number; totalCups: number; message: string }> {
+    const queueNo = extractQueueNumber(transaction.invoiceNumber);
+    const dateObj = new Date(transaction.timestamp || Date.now());
+    const hours = String(dateObj.getHours()).padStart(2, '0');
+    const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+    const timeStr = `${hours}:${minutes} WIB`;
+
+    // Hitung total cup
+    let totalCups = 0;
+    for (const it of transaction.items) {
+      totalCups += it.quantity || 1;
+    }
+
+    if (totalCups === 0) {
+      return { success: false, printedCups: 0, totalCups: 0, message: 'Tidak ada item minuman.' };
+    }
+
+    let printedCount = 0;
+    let currentCup = 0;
+
+    // Cetak 1 stiker per cup
+    for (const item of transaction.items) {
+      const qty = item.quantity || 1;
+      for (let q = 0; q < qty; q++) {
+        currentCup++;
+        const labelBytes = generateCupLabelBytes(
+          item.productName,
+          queueNo,
+          timeStr,
+          currentCup,
+          totalCups
+        );
+
+        if (isNativeAndroidApp()) {
+          try {
+            let binary = '';
+            for (let i = 0; i < labelBytes.length; i++) {
+              binary += String.fromCharCode(labelBytes[i]);
+            }
+            await NativePrinter.printBytes({
+              base64: btoa(binary),
+              target: 'label',
+            });
+            printedCount++;
+          } catch (err: any) {
+            console.warn('[BT Label Print Error]:', err);
+            // Jika printer label gagal/terputus
+            return {
+              success: false,
+              printedCups: printedCount,
+              totalCups,
+              message: `Gagal cetak stiker cup ke-${printedCount + 1}: ${err.message}`,
+            };
+          }
+        } else if (this.isLabelConnected && this.labelCharacteristic) {
+          try {
+            await this.sendWebCommand(labelBytes, this.labelCharacteristic);
+            printedCount++;
+          } catch (err: any) {
+            return {
+              success: false,
+              printedCups: printedCount,
+              totalCups,
+              message: `Gagal cetak stiker cup: ${err.message}`,
+            };
+          }
+        }
+
+        // Beri jeda 300ms antar stiker agar printer EPPOS sempat mencetak dan siap sobek
+        if (currentCup < totalCups) {
+          await new Promise((r) => setTimeout(r, 300));
+        }
+      }
+    }
+
+    return {
+      success: printedCount === totalCups,
+      printedCups: printedCount,
+      totalCups,
+      message: `Berhasil mencetak ${printedCount} stiker cup ke printer EPPOS.`,
+    };
+  }
+
+  // Cetak Keduanya Sekaligus (1 Tombol Selesai Transaksi -> Struk + Stiker Cup)
+  async printDual(
+    transaction: SalesTransaction,
+    options: { receipt?: boolean; label?: boolean } = { receipt: true, label: true }
+  ): Promise<{ receiptSuccess: boolean; labelSuccess: boolean; message: string }> {
+    let receiptSuccess = false;
+    let labelSuccess = false;
+    const messages: string[] = [];
+
+    // 1. Cetak Struk Kasir
+    if (options.receipt !== false) {
+      const resReceipt = await this.printReceipt(transaction, true);
+      receiptSuccess = resReceipt.success;
+      if (resReceipt.success) {
+        messages.push('Struk kasir tercetak');
+      } else if (resReceipt.error) {
+        messages.push(`Struk: ${resReceipt.error}`);
+      }
+    }
+
+    // Beri jeda 300ms antar printer
+    await new Promise((r) => setTimeout(r, 300));
+
+    // 2. Cetak Stiker Cup (EPPOS)
+    if (options.label !== false) {
+      const resLabel = await this.printCupLabels(transaction);
+      labelSuccess = resLabel.success;
+      if (resLabel.success) {
+        messages.push(`${resLabel.printedCups} stiker cup tercetak`);
+      } else {
+        messages.push(resLabel.message);
+      }
+    }
+
+    return {
+      receiptSuccess,
+      labelSuccess,
+      message: messages.join(' & '),
+    };
+  }
+
+  // Tes Cetak Stiker Cup EPPOS (1 Lembar Stiker Sampel)
+  async printTestCupLabel(): Promise<{ success: boolean; message: string }> {
+    const testBytes = generateCupLabelBytes('PEACH JASMINE MILK TEA', '#014', '14:35 WIB', 1, 1);
+
+    if (isNativeAndroidApp()) {
+      try {
+        let binary = '';
+        for (let i = 0; i < testBytes.length; i++) {
+          binary += String.fromCharCode(testBytes[i]);
+        }
+        const res = await NativePrinter.printBytes({
+          base64: btoa(binary),
+          target: 'label',
+        });
+        return {
+          success: res.success,
+          message: 'Tes cetak stiker cup berhasil dikirim ke printer EPPOS!',
+        };
+      } catch (e: any) {
+        return {
+          success: false,
+          message: e.message || 'Gagal tes cetak stiker cup EPPOS.',
+        };
+      }
+    }
+
+    if (this.isLabelConnected && this.labelCharacteristic) {
+      try {
+        await this.sendWebCommand(testBytes, this.labelCharacteristic);
+        return { success: true, message: 'Tes cetak stiker cup berhasil.' };
+      } catch (e: any) {
+        return { success: false, message: e.message || 'Gagal cetak web.' };
+      }
+    }
+
+    return {
+      success: false,
+      message: 'Printer Stiker Cup (EPPOS) belum tersambung.',
+    };
+  }
+
+  // Tes Cetak Struk Kasir
   async printTest(): Promise<{ success: boolean; message: string }> {
     if (isNativeAndroidApp()) {
       try {
         const encoder = new TextEncoder();
-        const testText = 'INCHA MILK TEA\nOutlet Karang Tengah\nTes Cetak Native Android OK!\nKoneksi Bluetooth Permanen\n\n\n\x1B\x6D';
+        const testText = 'INCHA MILK TEA\nOutlet Karang Tengah\nTes Cetak Struk Kasir OK!\n\n\n\x1B\x6D';
         const commands = [
           ...ESC_POS.INIT,
           ...ESC_POS.ALIGN_CENTER,
@@ -530,54 +574,131 @@ export class BluetoothPrinterService {
           binary += String.fromCharCode(commands[i]);
         }
 
-        const res = await NativePrinter.printBytes({ base64: btoa(binary) });
+        const res = await NativePrinter.printBytes({
+          base64: btoa(binary),
+          target: 'receipt',
+        });
         return {
           success: res.success,
-          message: 'Tes cetak native berhasil dikirim ke printer RPP02N.',
+          message: 'Tes cetak struk kasir berhasil!',
         };
       } catch (e: any) {
         return {
           success: false,
-          message: e.message || 'Gagal tes cetak native.',
+          message: e.message || 'Gagal tes cetak struk kasir.',
         };
       }
     }
+    return { success: false, message: 'Printer Struk Kasir belum terhubung.' };
+  }
 
-    const isReady = await this.ensureConnected();
-    if (!isReady || !this.characteristic) {
-      return {
-        success: false,
-        message: 'Printer belum terhubung. Sambungkan printer Bluetooth terlebih dahulu.',
-      };
+  private async sendWebCommand(bytes: number[], characteristic: any): Promise<void> {
+    const buffer = new Uint8Array(bytes);
+    const CHUNK_SIZE = 48;
+    for (let i = 0; i < buffer.length; i += CHUNK_SIZE) {
+      const chunk = buffer.slice(i, i + CHUNK_SIZE);
+      if (characteristic.properties.writeWithoutResponse) {
+        await characteristic.writeValueWithoutResponse(chunk);
+      } else {
+        await characteristic.writeValue(chunk);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 35));
     }
+  }
 
-    const encoder = new TextEncoder();
-    const testBytes = [
-      ...ESC_POS.INIT,
-      ...ESC_POS.ALIGN_CENTER,
-      ...ESC_POS.BOLD_ON,
-      ...Array.from(encoder.encode('INCHA TES PRINTER ESC/POS\n')),
-      ...ESC_POS.BOLD_OFF,
-      ...Array.from(encoder.encode('Printer Bluetooth OK\n')),
-      ...Array.from(encoder.encode('Outlet: Karang Tengah, Tangerang\n')),
-      ...Array.from(encoder.encode(formatDateWIB(new Date()) + '\n\n\n\n')),
-      ...ESC_POS.CUT_PAPER,
-    ];
-
-    const success = await this.sendCommand(testBytes);
-    return {
-      success,
-      message: success
-        ? 'Tes cetak berhasil dikirim ke printer.'
-        : 'Gagal mengirim data tes cetak ke printer.',
-    };
+  private async discoverWritableCharacteristic(server: any): Promise<any> {
+    const services = await server.getPrimaryServices();
+    for (const service of services) {
+      const chars = await service.getCharacteristics();
+      for (const char of chars) {
+        if (char.properties.write || char.properties.writeWithoutResponse) {
+          return char;
+        }
+      }
+    }
+    return null;
   }
 }
 
 export const bluetoothPrinter = new BluetoothPrinterService();
 
 /**
- * Format struk teks monospaced 32 karakter (kertas 58mm)
+ * Format Data Byte Stiker Cup (Super Compact 4-5 Baris untuk Kertas Stiker EPPOS 30mm)
+ *
+ * ┌──────────────────────────────┐
+ * │          INCHA TEA           │
+ * │ #014              14:35 WIB  │
+ * ├──────────────────────────────┤
+ * │   PEACH JASMINE MILK TEA     │
+ * ├──────────────────────────────┤
+ * │     Have a Good Day! ✨      │
+ * └──────────────────────────────┘
+ */
+export function generateCupLabelBytes(
+  productName: string,
+  queueNo: string,
+  timeStr: string,
+  cupIndex?: number,
+  totalCups?: number
+): number[] {
+  const LINE_WIDTH = 30; // 30 karakter sangat pas dan aman di kertas 58mm / 30mm
+  const divider = '-'.repeat(LINE_WIDTH);
+
+  const queueText =
+    totalCups && totalCups > 1 && cupIndex
+      ? `${queueNo} (${cupIndex}/${totalCups})`
+      : queueNo;
+
+  const spaceCount = Math.max(1, LINE_WIDTH - queueText.length - timeStr.length);
+  const queueLine = queueText + ' '.repeat(spaceCount) + timeStr;
+
+  const encoder = new TextEncoder();
+  const bytes: number[] = [
+    // 1. Reset Printer & Inisialisasi
+    ...ESC_POS.INIT,
+
+    // 2. Header: INCHA TEA (Bold Tengah)
+    ...ESC_POS.ALIGN_CENTER,
+    ...ESC_POS.BOLD_ON,
+    ...Array.from(encoder.encode('INCHA TEA\n')),
+    ...ESC_POS.BOLD_OFF,
+
+    // 3. Queue & Jam (Kiri & Kanan Rata)
+    ...ESC_POS.ALIGN_LEFT,
+    ...Array.from(encoder.encode(queueLine + '\n')),
+
+    // 4. Pembatas Garis
+    ...Array.from(encoder.encode(divider + '\n')),
+
+    // 5. Nama Minuman (Huruf BOLD, Double Height, Jelas di Tengah)
+    ...ESC_POS.ALIGN_CENTER,
+    ...ESC_POS.BOLD_ON,
+    ...ESC_POS.DOUBLE_HEIGHT,
+    ...Array.from(encoder.encode(productName.trim().toUpperCase() + '\n')),
+    ...ESC_POS.NORMAL,
+    ...ESC_POS.BOLD_OFF,
+
+    // 6. Pembatas Garis
+    ...ESC_POS.ALIGN_LEFT,
+    ...Array.from(encoder.encode(divider + '\n')),
+
+    // 7. Penutup Ramah Pelanggan
+    ...ESC_POS.ALIGN_CENTER,
+    ...ESC_POS.BOLD_ON,
+    ...Array.from(encoder.encode('Have a Good Day! *\n')),
+    ...ESC_POS.BOLD_OFF,
+
+    // 8. 3x Line Feed untuk memajukan kertas melewati gigi sobek printer EPPOS (~12mm)
+    0x0A,
+    0x0A,
+    0x0A,
+  ];
+
+  return bytes;
+}
+
+/**
+ * Format struk kasir teks monospaced 32 karakter (kertas 58mm)
  */
 export function generateReceiptText(transaction: SalesTransaction): string {
   const LINE_WIDTH = 32;
@@ -595,12 +716,13 @@ export function generateReceiptText(transaction: SalesTransaction): string {
     return ' '.repeat(leftPad) + text;
   };
 
+  const queueNo = extractQueueNumber(transaction.invoiceNumber);
   const lines: string[] = [];
 
   lines.push(center('INCHA MILK TEA'));
   lines.push(center('Karang Tengah, Tangerang'));
   lines.push(doubleDivider);
-  lines.push(pad(`No: ${transaction.invoiceNumber}`, ''));
+  lines.push(pad(`No: ${transaction.invoiceNumber}`, `Antrian: ${queueNo}`));
   lines.push(pad(`Wkt: ${formatDateWIB(transaction.timestamp)}`, ''));
   lines.push(pad(`Kasir: ${transaction.cashierName}`, `[${transaction.channel.toUpperCase()}]`));
   lines.push(divider);
@@ -617,7 +739,6 @@ export function generateReceiptText(transaction: SalesTransaction): string {
   }
 
   lines.push(divider);
-  // Hemat kertas: jika tidak ada diskon, langsung tampilkan TOTAL saja tanpa subtotal ganda
   if (transaction.totalDiscount > 0) {
     lines.push(pad('Subtotal:', formatRupiah(transaction.totalGross)));
     lines.push(pad('Diskon:', `-${formatRupiah(transaction.totalDiscount)}`));
@@ -642,11 +763,9 @@ export function generateReceiptText(transaction: SalesTransaction): string {
 
 /**
  * Kirim langsung struk ke aplikasi RawBT Print Service di Android (jika terinstall)
- * RawBT menjaga koneksi Bluetooth printer secara permanen di background OS Android.
  */
 export function printViaRawBT(transaction: SalesTransaction): boolean {
   try {
-    // Ringkas spasi kertas akhir cukup 2 baris (hemat kertas)
     const text = generateReceiptText(transaction) + '\n\n\x1B\x6D';
     const encoder = new TextEncoder();
     const bytes = encoder.encode(text);
@@ -655,8 +774,6 @@ export function printViaRawBT(transaction: SalesTransaction): boolean {
       binary += String.fromCharCode(bytes[i]);
     }
     const base64 = btoa(binary);
-
-    // Gunakan skema Android Intent resmi RawBT dengan action PRINT_RAWBT agar langsung dicetak
     window.location.href = `intent:base64,${base64}#Intent;action=ru.a402d.rawbtprinter.action.PRINT_RAWBT;scheme=rawbt;package=ru.a402d.rawbtprinter;end;`;
     return true;
   } catch (err) {

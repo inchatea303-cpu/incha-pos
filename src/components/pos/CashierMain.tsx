@@ -25,6 +25,9 @@ import {
   ShieldCheck,
   Store,
   Settings,
+  Tag,
+  Sparkles,
+  Zap,
 } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
 import {
@@ -82,23 +85,37 @@ export const CashierMain: React.FC = () => {
   const [voidTxTarget, setVoidTxTarget] = useState<SalesTransaction | null>(null);
   const [voidReason, setVoidReason] = useState<string>('');
 
-  // Bluetooth State
+  // Bluetooth State (Dual Printer: Kasir & Stiker Cup EPPOS)
   const [btStatus, setBtStatus] = useState<string>(
-    bluetoothPrinter.connected ? `Terhubung: ${bluetoothPrinter.name}` : 'Belum Terhubung'
+    bluetoothPrinter.connected ? bluetoothPrinter.name : 'Belum Terhubung'
   );
   const [pairedDevices, setPairedDevices] = useState<NativeBTDevice[]>([]);
-  const [selectedDeviceAddress, setSelectedDeviceAddress] = useState<string>('');
+  const [selectedReceiptAddress, setSelectedReceiptAddress] = useState<string>(
+    localStorage.getItem('incha_native_bt_receipt_address') || localStorage.getItem('incha_native_bt_address') || ''
+  );
+  const [selectedLabelAddress, setSelectedLabelAddress] = useState<string>(
+    localStorage.getItem('incha_native_bt_label_address') || ''
+  );
 
   const refreshPairedDevices = async () => {
     if (isNativeAndroidApp()) {
       const devs = await getPairedBluetoothPrinters();
       setPairedDevices(devs);
-      if (devs.length > 0 && !selectedDeviceAddress) {
-        const saved = localStorage.getItem('incha_native_bt_address');
-        const match = (saved ? devs.find(d => d.address === saved) : null)
-          || devs.find(d => /xantri|pos|print|rpp|bt/i.test(d.name))
-          || devs[0];
-        if (match) setSelectedDeviceAddress(match.address);
+      if (devs.length > 0) {
+        if (!selectedReceiptAddress) {
+          const savedR = localStorage.getItem('incha_native_bt_receipt_address') || localStorage.getItem('incha_native_bt_address');
+          const matchR = (savedR ? devs.find(d => d.address === savedR) : null)
+            || devs.find(d => /xantri|pos|print|rpp|bt/i.test(d.name))
+            || devs[0];
+          if (matchR) setSelectedReceiptAddress(matchR.address);
+        }
+        if (!selectedLabelAddress) {
+          const savedL = localStorage.getItem('incha_native_bt_label_address');
+          const matchL = (savedL ? devs.find(d => d.address === savedL) : null)
+            || devs.find(d => /eppos|ep58|ep-58|label|cup|sticker|mpt|mtp|rpp|pos-58|printer/i.test(d.name))
+            || (devs.length > 1 ? devs[1] : devs[0]);
+          if (matchL) setSelectedLabelAddress(matchL.address);
+        }
       }
     }
   };
@@ -247,8 +264,18 @@ export const CashierMain: React.FC = () => {
     });
 
     // Otomatis kirim perintah buka laci kas jika bayar tunai
-    if (paymentMethod === 'cash' && bluetoothPrinter.connected) {
+    if (paymentMethod === 'cash' && bluetoothPrinter.receiptConnected) {
       bluetoothPrinter.openCashDrawer();
+    }
+
+    // Auto-Print: Struk Kasir + Stiker Cup EPPOS sekaligus (1 Tombol Otomatis Keluar Keduanya)
+    const hasReceipt = bluetoothPrinter.receiptConnected || !!localStorage.getItem('incha_native_bt_receipt_address');
+    const hasLabel = bluetoothPrinter.labelConnected || !!localStorage.getItem('incha_native_bt_label_address');
+    if (hasReceipt || hasLabel) {
+      bluetoothPrinter.printDual(saleRecord, {
+        receipt: hasReceipt,
+        label: hasLabel,
+      });
     }
 
     // Reset Cart
@@ -269,16 +296,40 @@ export const CashierMain: React.FC = () => {
     setVoidReason('');
   };
 
-  // Bluetooth Actions
-  const handleConnectBt = async () => {
-    setBtStatus('Mencari printer Bluetooth...');
-    const res = await bluetoothPrinter.connect(selectedDeviceAddress || undefined);
+  // Bluetooth Actions (Dual Printer)
+  const handleConnectAllPrinters = async () => {
+    setBtStatus('Menghubungkan kedua printer (Kasir & EPPOS)...');
+    if (selectedReceiptAddress) {
+      await bluetoothPrinter.connectReceipt(selectedReceiptAddress);
+    }
+    await new Promise((r) => setTimeout(r, 400));
+    if (selectedLabelAddress) {
+      await bluetoothPrinter.connectLabel(selectedLabelAddress);
+    }
+    refreshPairedDevices();
+  };
+
+  const handleConnectReceiptBt = async () => {
+    setBtStatus('Mencari printer Struk Kasir...');
+    const res = await bluetoothPrinter.connectReceipt(selectedReceiptAddress || undefined);
     setBtStatus(res.message);
     refreshPairedDevices();
   };
 
-  const handleTestPrint = async () => {
+  const handleConnectLabelBt = async () => {
+    setBtStatus('Mencari printer Stiker Cup EPPOS...');
+    const res = await bluetoothPrinter.connectLabel(selectedLabelAddress || undefined);
+    setBtStatus(res.message);
+    refreshPairedDevices();
+  };
+
+  const handleTestPrintReceipt = async () => {
     const res = await bluetoothPrinter.printTest();
+    alert(res.message);
+  };
+
+  const handleTestPrintLabel = async () => {
+    const res = await bluetoothPrinter.printTestCupLabel();
     alert(res.message);
   };
 
@@ -821,121 +872,192 @@ export const CashierMain: React.FC = () => {
             </button>
           </div>
 
-          <div className="bg-white p-4 rounded-2xl border border-[#E2DED6] shadow-sm space-y-3">
-            <div className="flex items-center gap-2">
-              <Bluetooth className="w-5 h-5 text-[#1B2A5C]" />
-              <div>
-                <h3 className="font-bold text-sm text-[#1B2A5C]">
-                  {isNativeAndroidApp()
-                    ? 'Printer Bluetooth Native (Aplikasi Android APK)'
-                    : 'Printer Web Bluetooth (Jalur Alternatif)'}
-                </h3>
-                <p className="text-[11px] text-[#6B7280]">
-                  {isNativeAndroidApp()
-                    ? 'Koneksi langsung sistem Android anti-putus (Tanpa RawBT)'
-                    : 'Koneksi manual langsung lewat browser'}
-                </p>
-              </div>
-            </div>
-
-            <div className="p-3 bg-[#FAF8F4] rounded-xl border border-[#E2DED6] text-xs">
-              <div className="text-[11px] text-[#6B7280]">Status Perangkat:</div>
-              <div className="font-bold text-sm text-[#1B2A5C] mt-0.5">{btStatus}</div>
-            </div>
-
-            {btStatus.toLowerCase().includes('izin') && isNativeAndroidApp() && (
-              <button
-                type="button"
-                onClick={openNativeAppSettings}
-                className="w-full py-2.5 px-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow transition-all active:scale-95"
-              >
-                <Settings className="w-4 h-4" />
-                <span>Buka Pengaturan HP (Izinkan &quot;Perangkat di Sekitar&quot;)</span>
-              </button>
-            )}
-
-            {isNativeAndroidApp() && (
-              <div className="space-y-1.5 p-3 bg-blue-50/70 border border-blue-200 rounded-xl">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-[#1B2A5C]">
-                    Pilih Printer Bluetooth (Xantri / RPP02N):
-                  </label>
+            <div className="bg-white p-4 rounded-2xl border border-[#E2DED6] shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Bluetooth className="w-5 h-5 text-[#1B2A5C]" />
+                  <div>
+                    <h3 className="font-bold text-sm text-[#1B2A5C]">
+                      Pengaturan Dual Printer Bluetooth
+                    </h3>
+                    <p className="text-[11px] text-[#6B7280]">
+                      1 Aplikasi terhubung ke 2 Printer: Struk Kasir & Stiker Cup EPPOS
+                    </p>
+                  </div>
+                </div>
+                {isNativeAndroidApp() && (
                   <button
                     type="button"
                     onClick={refreshPairedDevices}
-                    className="text-[11px] font-semibold text-blue-700 hover:underline"
+                    className="px-2.5 py-1 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors"
                   >
                     Scan Ulang
                   </button>
-                </div>
-                {pairedDevices.length > 0 ? (
-                  <select
-                    value={selectedDeviceAddress}
-                    onChange={(e) => setSelectedDeviceAddress(e.target.value)}
-                    className="w-full p-2.5 text-xs font-medium border border-gray-300 rounded-lg bg-white text-gray-800 focus:outline-none focus:border-[#1B2A5C]"
-                  >
-                    {pairedDevices.map((d) => (
-                      <option key={d.address} value={d.address}>
-                        {d.name} ({d.address})
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <p className="text-[11px] text-gray-600">
-                    Belum ada printer yang di-pair di Bluetooth HP. Buka menu Bluetooth HP dan pasangkan printer Xantri / RPP02N terlebih dahulu.
-                  </p>
                 )}
               </div>
-            )}
 
-            {(btStatus.includes('-1') || btStatus.includes('terkunci') || btStatus.includes('timeout')) && (
-              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-800 space-y-1">
-                <div className="font-bold flex items-center gap-1.5 text-amber-900">
-                  <span>💡 Tips Printer Xantri / RPP02N Sibuk:</span>
+              {/* Status Dua Perangkat */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-200 text-xs">
+                  <div className="text-[10px] uppercase font-bold text-blue-800 flex items-center gap-1">
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Printer Struk Kasir:</span>
+                  </div>
+                  <div className="font-bold text-xs text-black mt-1">
+                    {bluetoothPrinter.receiptConnected ? `🟢 ${bluetoothPrinter.receiptName}` : '⚪ Belum Terhubung'}
+                  </div>
                 </div>
-                <p className="text-[11px] leading-relaxed">
-                  Printer thermal hanya bisa terhubung ke 1 aplikasi. Matikan tombol power printer selama 3 detik lalu nyalakan kembali, dan pastikan aplikasi RawBT ditutup agar koneksi Bluetooth tidak rebutan.
-                </p>
-              </div>
-            )}
 
-            <div className="space-y-2">
+                <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200 text-xs">
+                  <div className="text-[10px] uppercase font-bold text-emerald-800 flex items-center gap-1">
+                    <Tag className="w-3.5 h-3.5" />
+                    <span>Printer Stiker Cup (EPPOS):</span>
+                  </div>
+                  <div className="font-bold text-xs text-black mt-1">
+                    {bluetoothPrinter.labelConnected ? `🟢 ${bluetoothPrinter.labelName}` : '⚪ Belum Terhubung'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Tombol Sambungkan Semua Printer Sekaligus */}
               <button
                 type="button"
-                onClick={handleConnectBt}
-                className="w-full h-12 rounded-xl bg-[#1B2A5C] hover:bg-[#243775] text-white font-bold text-xs flex items-center justify-center gap-2 shadow"
+                onClick={handleConnectAllPrinters}
+                className="w-full py-2.5 px-3 bg-gradient-to-r from-[#1B2A5C] via-teal-800 to-emerald-700 hover:opacity-95 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow transition-all active:scale-95"
               >
-                <Bluetooth className="w-4 h-4" />
-                <span>Sambungkan Printer Bluetooth</span>
+                <Zap className="w-4 h-4 text-amber-300" />
+                <span>⚡ Sambungkan Kedua Printer Sekaligus (Kasir + EPPOS)</span>
               </button>
 
-              <div className="grid grid-cols-2 gap-2">
+              {btStatus.toLowerCase().includes('izin') && isNativeAndroidApp() && (
                 <button
                   type="button"
-                  onClick={handleTestPrint}
-                  className="h-11 rounded-xl bg-white hover:bg-gray-50 text-[#1B2A5C] border border-[#1B2A5C] font-bold text-xs flex items-center justify-center gap-1.5"
+                  onClick={openNativeAppSettings}
+                  className="w-full py-2.5 px-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow transition-all active:scale-95"
                 >
-                  <Printer className="w-4 h-4" />
-                  <span>Tes Cetak Struk</span>
+                  <Settings className="w-4 h-4" />
+                  <span>Buka Pengaturan HP (Izinkan &quot;Perangkat di Sekitar&quot;)</span>
                 </button>
+              )}
 
-                <button
-                  type="button"
-                  onClick={handleDrawerKick}
-                  className="h-11 rounded-xl bg-white hover:bg-gray-50 text-[#1B2A5C] border border-[#1B2A5C] font-bold text-xs flex items-center justify-center gap-1.5"
-                >
-                  <Coins className="w-4 h-4" />
-                  <span>Buka Laci Kas</span>
-                </button>
+              {/* SLOT 1: PRINTER STRUK KASIR */}
+              <div className="p-3.5 bg-[#FAF8F4] rounded-xl border border-gray-300 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-[#1B2A5C] flex items-center gap-1.5">
+                    <Printer className="w-4 h-4 text-[#1B2A5C]" />
+                    <span>1. Printer Struk Kasir (Xantri / RPP02N):</span>
+                  </label>
+                  <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded">
+                    Struk Nota
+                  </span>
+                </div>
+
+                {isNativeAndroidApp() && (
+                  pairedDevices.length > 0 ? (
+                    <select
+                      value={selectedReceiptAddress}
+                      onChange={(e) => setSelectedReceiptAddress(e.target.value)}
+                      className="w-full p-2.5 text-xs font-medium border border-gray-300 rounded-lg bg-white text-gray-800 focus:outline-none focus:border-[#1B2A5C]"
+                    >
+                      {pairedDevices.map((d) => (
+                        <option key={d.address} value={d.address}>
+                          {d.name} ({d.address})
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="text-[11px] text-gray-600">
+                      Belum ada printer yang di-pair di Bluetooth HP. Buka menu Bluetooth HP dan pasangkan printer kasir terlebih dahulu.
+                    </p>
+                  )
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleConnectReceiptBt}
+                    className="h-10 rounded-lg bg-[#1B2A5C] hover:bg-[#243775] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow"
+                  >
+                    <Bluetooth className="w-3.5 h-3.5" />
+                    <span>Sambungkan Kasir</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleTestPrintReceipt}
+                    className="h-10 rounded-lg bg-white hover:bg-gray-50 text-[#1B2A5C] border border-[#1B2A5C] font-bold text-xs flex items-center justify-center gap-1"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Tes Struk</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDrawerKick}
+                    className="h-10 rounded-lg bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 font-bold text-xs flex items-center justify-center gap-1"
+                  >
+                    <Coins className="w-3.5 h-3.5" />
+                    <span>Buka Laci</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* SLOT 2: PRINTER STIKER CUP EPPOS */}
+              <div className="p-3.5 bg-emerald-50/50 rounded-xl border border-emerald-300 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                    <Tag className="w-4 h-4 text-emerald-700" />
+                    <span>2. Printer Stiker Cup (EPPOS):</span>
+                  </label>
+                  <span className="text-[10px] bg-emerald-200 text-emerald-900 font-bold px-2 py-0.5 rounded">
+                    Label Cup
+                  </span>
+                </div>
+
+                {isNativeAndroidApp() && (
+                  pairedDevices.length > 0 ? (
+                    <select
+                      value={selectedLabelAddress}
+                      onChange={(e) => setSelectedLabelAddress(e.target.value)}
+                      className="w-full p-2.5 text-xs font-medium border border-emerald-300 rounded-lg bg-white text-gray-800 focus:outline-none focus:border-emerald-600"
+                    >
+                      {pairedDevices.map((d) => (
+                        <option key={d.address} value={d.address}>
+                          {d.name} ({d.address})
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="text-[11px] text-gray-600">
+                      Buka menu Bluetooth HP dan pasangkan printer EPPOS terlebih dahulu.
+                    </p>
+                  )
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleConnectLabelBt}
+                    className="h-10 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow"
+                  >
+                    <Bluetooth className="w-3.5 h-3.5" />
+                    <span>Sambungkan EPPOS</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleTestPrintLabel}
+                    className="h-10 rounded-lg bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-600 font-bold text-xs flex items-center justify-center gap-1"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Tes Cetak Stiker Cup (1x)</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="text-[11px] text-[#6B7280] leading-relaxed pt-2 border-t border-[#E2DED6]">
+                💡 <strong>Cara Kerja Cetak Sekaligus:</strong> Saat transaksi diselesaikan di kasir, aplikasi otomatis mengirimkan 1 lembar struk ke Printer Kasir dan mencetak stiker cup ke Printer EPPOS sesuai jumlah cup minuman yang dipesan.
               </div>
             </div>
-
-            <div className="text-[11px] text-[#6B7280] leading-relaxed pt-2 border-t border-[#E2DED6]">
-              * Fitur Web Bluetooth beroperasi optimal di browser <strong>Google Chrome di Android</strong>. Pastikan Bluetooth di HP dalam posisi aktif sebelum memasangkan printer.
-            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {/* MODAL: KONFIRMASI ORDER SEBELUM SELESAI */}
       <CheckoutConfirmModal

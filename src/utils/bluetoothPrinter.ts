@@ -716,7 +716,9 @@ export function generateCupLabelBytes(
     ...Array.from(encoder.encode('Have a Good Day! *\n')),
     ...ESC_POS.BOLD_OFF,
 
-    // 8. 3x Line Feed untuk memajukan kertas melewati gigi sobek printer EPPOS (~12mm)
+    // 8. 5x Line Feed agar seluruh teks stiker keluar penuh melewati gigi sobek printer EPPOS (~18-20mm)
+    0x0A,
+    0x0A,
     0x0A,
     0x0A,
     0x0A,

@@ -208,36 +208,31 @@ public class BluetoothPrinterPlugin extends Plugin {
     }
 
     @PluginMethod
-    public void printBytes(PluginCall call) {
+    public synchronized void printBytes(PluginCall call) {
         String base64 = call.getString("base64");
         String target = call.getString("target", "receipt");
+        String forcedAddress = call.getString("address");
         PrinterSlot slot = getSlot(target);
+
+        if (forcedAddress != null && !forcedAddress.trim().isEmpty()) {
+            slot.address = forcedAddress;
+        }
 
         if (base64 == null || base64.isEmpty()) {
             call.reject("Data cetak tidak boleh kosong.");
             return;
         }
 
-        // Cek koneksi aktif pada slot target
-        if (!slot.isConnected()) {
-            // Percobaan auto-reconnect jika pernah tersambung di slot ini
-            if (slot.address != null) {
-                try {
-                    BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-                    if (adapter != null && adapter.isEnabled()) {
-                        BluetoothDevice device = adapter.getRemoteDevice(slot.address);
-                        if (adapter.isDiscovering()) {
-                            adapter.cancelDiscovery();
-                        }
-                        BluetoothSocket socket = openSocket(device);
-                        if (socket != null && socket.isConnected()) {
-                            slot.socket = socket;
-                            slot.stream = socket.getOutputStream();
-                        }
-                    }
-                } catch (Exception ignored) {}
-            }
+        byte[] bytes;
+        try {
+            bytes = Base64.decode(base64, Base64.DEFAULT);
+        } catch (Exception e) {
+            call.reject("Format data cetak tidak valid: " + e.getMessage());
+            return;
         }
+
+        // 1. Pastikan koneksi aktif (pulihkan otomatis jika socket tertutup/sleep)
+        ensureConnected(slot);
 
         if (!slot.isConnected()) {
             String targetLabel = "label".equalsIgnoreCase(target) ? "Printer Stiker Cup (EPPOS)" : "Printer Struk Kasir";
@@ -245,17 +240,78 @@ public class BluetoothPrinterPlugin extends Plugin {
             return;
         }
 
-        try {
-            byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
-            slot.stream.write(bytes);
-            slot.stream.flush();
+        // 2. Percobaan tulis pertama ke stream
+        boolean success = writeToStream(slot, bytes);
 
+        // 3. Jika gagal (misal Broken pipe karena printer sempat idle/sleep) -> Reconnect otomatis dan coba lagi
+        if (!success) {
+            Log.w(TAG, "Pengiriman data ke " + target + " gagal (Broken pipe/socket reset). Mencoba reconnect otomatis...");
+            slot.disconnect();
+            try { Thread.sleep(250); } catch (Exception ignored) {}
+            ensureConnected(slot);
+
+            if (slot.isConnected()) {
+                success = writeToStream(slot, bytes);
+            }
+        }
+
+        if (success) {
             JSObject ret = new JSObject();
             ret.put("success", true);
             ret.put("target", target);
             call.resolve(ret);
+        } else {
+            String targetLabel = "label".equalsIgnoreCase(target) ? "Printer Stiker Cup (EPPOS)" : "Printer Struk Kasir";
+            call.reject("Gagal mengirim data ke " + targetLabel + " (Koneksi terputus). Pastikan printer menyala.");
+        }
+    }
+
+    private synchronized void ensureConnected(PrinterSlot slot) {
+        if (slot.isConnected()) {
+            return;
+        }
+        if (slot.address == null || slot.address.trim().isEmpty()) {
+            return;
+        }
+
+        try {
+            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+            if (adapter == null || !adapter.isEnabled()) {
+                return;
+            }
+            if (adapter.isDiscovering()) {
+                adapter.cancelDiscovery();
+            }
+            try { Thread.sleep(150); } catch (Exception ignored) {}
+
+            BluetoothDevice device = adapter.getRemoteDevice(slot.address);
+            BluetoothSocket socket = openSocket(device);
+            if (socket != null && socket.isConnected()) {
+                slot.socket = socket;
+                slot.stream = socket.getOutputStream();
+                if (slot.name == null || slot.name.isEmpty()) {
+                    try {
+                        slot.name = device.getName();
+                    } catch (SecurityException ignored) {}
+                }
+                Log.i(TAG, "Koneksi berhasil dipulihkan otomatis ke " + slot.name + " (" + slot.address + ")");
+            }
         } catch (Exception e) {
-            call.reject("Gagal mengirim data cetak ke printer: " + e.getMessage());
+            Log.w(TAG, "Gagal memulihkan koneksi ke " + slot.address + ": " + e.getMessage());
+        }
+    }
+
+    private synchronized boolean writeToStream(PrinterSlot slot, byte[] bytes) {
+        if (slot.stream == null) {
+            return false;
+        }
+        try {
+            slot.stream.write(bytes);
+            slot.stream.flush();
+            return true;
+        } catch (IOException e) {
+            Log.w(TAG, "Write error pada " + slot.name + ": " + e.getMessage());
+            return false;
         }
     }
 

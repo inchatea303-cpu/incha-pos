@@ -15,7 +15,11 @@ export interface NativeBluetoothPrinterPlugin {
     name: string;
     address: string;
   }>;
-  printBytes(options: { base64: string; target?: 'receipt' | 'label' }): Promise<{ success: boolean; target?: string }>;
+  printBytes(options: {
+    base64: string;
+    target?: 'receipt' | 'label';
+    address?: string;
+  }): Promise<{ success: boolean; target?: string }>;
   isConnected(options?: { target?: 'receipt' | 'label' }): Promise<{
     connected: boolean;
     name?: string;
@@ -321,7 +325,15 @@ export class BluetoothPrinterService {
         for (let i = 0; i < ESC_POS.OPEN_CASH_DRAWER.length; i++) {
           binary += String.fromCharCode(ESC_POS.OPEN_CASH_DRAWER[i]);
         }
-        await NativePrinter.printBytes({ base64: btoa(binary), target: 'receipt' });
+        const savedReceiptAddr =
+          localStorage.getItem('incha_native_bt_receipt_address') ||
+          localStorage.getItem('incha_native_bt_address') ||
+          undefined;
+        await NativePrinter.printBytes({
+          base64: btoa(binary),
+          target: 'receipt',
+          address: savedReceiptAddr,
+        });
         return { success: true, message: 'Perintah buka laci kasir terkirim.' };
       } catch (e: any) {
         return { success: false, message: e.message || 'Gagal buka laci.' };
@@ -355,9 +367,15 @@ export class BluetoothPrinterService {
           binary += String.fromCharCode(commands[i]);
         }
 
+        const savedReceiptAddr =
+          localStorage.getItem('incha_native_bt_receipt_address') ||
+          localStorage.getItem('incha_native_bt_address') ||
+          undefined;
+
         const res = await NativePrinter.printBytes({
           base64: btoa(binary),
           target: 'receipt',
+          address: savedReceiptAddr,
         });
         return { success: res.success, receiptText };
       } catch (err: any) {
@@ -431,9 +449,11 @@ export class BluetoothPrinterService {
             for (let i = 0; i < labelBytes.length; i++) {
               binary += String.fromCharCode(labelBytes[i]);
             }
+            const savedLabelAddr = localStorage.getItem('incha_native_bt_label_address') || undefined;
             await NativePrinter.printBytes({
               base64: btoa(binary),
               target: 'label',
+              address: savedLabelAddr,
             });
             printedCount++;
           } catch (err: any) {
@@ -495,8 +515,8 @@ export class BluetoothPrinterService {
       }
     }
 
-    // Beri jeda 300ms antar printer
-    await new Promise((r) => setTimeout(r, 300));
+    // Beri jeda 450ms antar printer agar stack Bluetooth beralih dengan stabil
+    await new Promise((r) => setTimeout(r, 450));
 
     // 2. Cetak Stiker Cup (EPPOS)
     if (options.label !== false) {
@@ -526,9 +546,11 @@ export class BluetoothPrinterService {
         for (let i = 0; i < testBytes.length; i++) {
           binary += String.fromCharCode(testBytes[i]);
         }
+        const savedLabelAddr = localStorage.getItem('incha_native_bt_label_address') || undefined;
         const res = await NativePrinter.printBytes({
           base64: btoa(binary),
           target: 'label',
+          address: savedLabelAddr,
         });
         return {
           success: res.success,
@@ -574,9 +596,15 @@ export class BluetoothPrinterService {
           binary += String.fromCharCode(commands[i]);
         }
 
+        const savedReceiptAddr =
+          localStorage.getItem('incha_native_bt_receipt_address') ||
+          localStorage.getItem('incha_native_bt_address') ||
+          undefined;
+
         const res = await NativePrinter.printBytes({
           base64: btoa(binary),
           target: 'receipt',
+          address: savedReceiptAddr,
         });
         return {
           success: res.success,

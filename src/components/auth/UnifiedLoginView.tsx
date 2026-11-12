@@ -27,15 +27,17 @@ interface UnifiedLoginViewProps {
   onOwnerLoginSuccess: (owner: OwnerAccount) => void;
   onCashierLoginSuccess: () => void;
   sessionExpiredMessage?: string | null;
+  initialTab?: 'kasir' | 'admin';
 }
 
 export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
   onOwnerLoginSuccess,
   onCashierLoginSuccess,
   sessionExpiredMessage,
+  initialTab = 'kasir',
 }) => {
   // Mode Login: 'kasir' atau 'admin'
-  const [activeTab, setActiveTab] = useState<'kasir' | 'admin'>('kasir');
+  const [activeTab, setActiveTab] = useState<'kasir' | 'admin'>(initialTab);
 
   // State Kasir (PIN)
   const [cashierPin, setCashierPin] = useState('');

@@ -103,34 +103,65 @@ export function playPaymentChime(): void {
   }
 }
 
-// Ucapkan suara Text-to-Speech bahasa Indonesia
+function fallbackSpeechSynthesis(text: string): void {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+  try {
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+    }
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'id-ID';
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+
+    const voices = window.speechSynthesis.getVoices();
+    const idVoice = voices.find((v) => v.lang.toLowerCase().includes('id'));
+    if (idVoice) {
+      utterance.voice = idVoice;
+    }
+    window.speechSynthesis.speak(utterance);
+  } catch (e) {
+    console.warn('[Fallback TTS error]:', e);
+  }
+}
+
+// Ucapkan suara manusia asli bahasa Indonesia (Natural Human Voice MP3)
 export function speakPaymentVoice(amount: number): void {
+  // 1. Bunyikan nada lonceng
   playPaymentChime();
 
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+  const nominalText = terbilangRupiah(amount);
+  const fullText = `Pembayaran ShopeePay QRIS sebesar ${nominalText} telah diterima`;
 
+  if (typeof window === 'undefined') return;
+
+  // 2. Putar suara manusia wanita bahasa Indonesia yang jernih via Google Audio Stream
   setTimeout(() => {
     try {
-      if (window.speechSynthesis.paused) {
-        window.speechSynthesis.resume();
-      }
-      const text = `Pembayaran ShopeePay QRIS sebesar ${terbilangRupiah(amount)} telah diterima.`;
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'id-ID';
-      utterance.rate = 1.0;
-      utterance.pitch = 1.05;
+      const isLocal = window.location.hostname === 'localhost';
+      const proxyBase = isLocal ? '' : 'https://incha-pos.vercel.app';
+      const ttsUrl = `${proxyBase}/api/tts?text=${encodeURIComponent(fullText)}`;
 
-      const voices = window.speechSynthesis.getVoices();
-      const idVoice = voices.find((v) => v.lang.toLowerCase().includes('id'));
-      if (idVoice) {
-        utterance.voice = idVoice;
-      }
+      const audio = new Audio(ttsUrl);
+      audio.volume = 1.0;
 
-      window.speechSynthesis.speak(utterance);
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.warn('[Natural Voice Error, trying direct Google TTS]:', err);
+          const directUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=id&client=tw-ob&q=${encodeURIComponent(fullText)}`;
+          const directAudio = new Audio(directUrl);
+          directAudio.volume = 1.0;
+          directAudio.play().catch(() => {
+            fallbackSpeechSynthesis(fullText);
+          });
+        });
+      }
     } catch (e) {
-      console.warn('[QRIS TTS] Speech error:', e);
+      console.warn('[Natural Voice Exception]:', e);
+      fallbackSpeechSynthesis(fullText);
     }
-  }, 500);
+  }, 400);
 }
 
 // Universal fetch: Mengatasi CORS browser via Vercel proxy atau CapacitorHttp di Android

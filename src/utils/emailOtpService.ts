@@ -37,10 +37,12 @@ export async function sendRealOtpEmail(
   ownerName: string = 'Jayden'
 ): Promise<SendOtpResult> {
   const localApiKey = getStoredResendApiKey();
+  const isLocal = typeof window !== 'undefined' && window.location.hostname === 'localhost' && window.location.port !== '';
+  const proxyBase = isLocal ? '' : 'https://incha-pos.vercel.app';
 
   try {
     // 1. Coba panggil serverless function /api/send-otp
-    const response = await fetch('/api/send-otp', {
+    const response = await fetch(`${proxyBase}/api/send-otp`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

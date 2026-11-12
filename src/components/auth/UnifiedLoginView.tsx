@@ -133,16 +133,16 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     setCashierError(null);
   };
 
-  // Handler Submit Admin / Pemilik - LANGSUNG MASUK (Tanpa Halangan OTP)
-  const handleAdminDirectLogin = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  // Handler Submit Admin / Pemilik - Langkah 1: Kredensial -> Minta OTP ke Email Riil
+  const handleAdminRequestOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (isLoading) return;
 
     setAdminError(null);
     setAdminSuccess(null);
     setIsLoading(true);
 
-    // Pastikan akun tidak terkunci
+    // Pastikan lockout direset untuk akun yang sah
     const accounts = authService.getAccounts();
     const currentAcc = accounts.find((a) =>
       a.email.toLowerCase() === adminEmail.trim().toLowerCase() ||
@@ -154,31 +154,30 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
       currentAcc.failedAttempts = 0;
     }
 
-    const result = authService.login(adminEmail, adminPassword, new Date());
+    const result = authService.requestLoginOtp(adminEmail, adminPassword, new Date());
+    if (!result.success || !result.otp) {
+      setIsLoading(false);
+      setAdminError(result.error || 'Password salah. Silakan coba lagi.');
+      return;
+    }
+
+    setActiveOtp(result.otp);
+    setOtpInput('');
+    setAdminStep('otp');
+    setResendCountdown(60);
+
+    // Kirim email nyata ke inbox Gmail via API Resend / Serverless
+    const sendResult = await sendRealOtpEmail(adminEmail, result.otp, 'Jayden');
     setIsLoading(false);
 
-    if (result.success && result.owner) {
-      onOwnerLoginSuccess(result.owner);
+    if (sendResult.success) {
+      setAdminSuccess(`Kode OTP asli telah terkirim ke inbox ${adminEmail}! Silakan cek aplikasi Gmail Anda.`);
+    } else if (sendResult.needApiKey) {
+      setAdminSuccess(`Kode verifikasi keamanan telah dibuat. Silakan periksa inbox email atau atur API key.`);
+      setIsApiKeyModalOpen(true);
     } else {
-      setAdminError(result.error || 'Password salah. Password default: Incha2026!');
+      setAdminError(sendResult.error || 'Gagal mengirim email OTP.');
     }
-  };
-
-  // 1-Klik Masuk Cepat Pemilik (Jayden)
-  const handleQuickOwnerBypass = () => {
-    const accounts = authService.getAccounts();
-    const jayden = accounts.find((a) => a.email.toLowerCase().includes('inchatea') || a.name === 'Jayden') || accounts[0];
-    if (jayden) {
-      jayden.lockedUntil = null;
-      jayden.failedAttempts = 0;
-      onOwnerLoginSuccess(jayden);
-    }
-  };
-
-  // Handler Submit Admin / Pemilik - Langkah 1: Kredensial -> Minta OTP Riil
-  const handleAdminRequestOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    handleAdminDirectLogin(e);
   };
 
   // Handler Submit Admin / Pemilik - Langkah 2: Verifikasi 6 Digit OTP
@@ -474,31 +473,22 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                   </div>
                 </div>
 
-                {/* Tombol Masuk Langsung & Bypass 1-Klik */}
-                <div className="pt-2 space-y-2">
+                {/* Tombol Kirim OTP ke Email */}
+                <div className="pt-2">
                   <button
                     type="submit"
                     disabled={isLoading}
                     className="w-full h-11 bg-[#1B2A5C] hover:bg-[#131E42] active:bg-[#0D1530] disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold text-sm rounded-xl flex items-center justify-center gap-2 transition-all duration-150 shadow-md shadow-[#1B2A5C]/15"
                   >
                     {isLoading ? (
-                      <span>Memverifikasi Password...</span>
+                      <span>Mengirim Kode OTP ke Email...</span>
                     ) : (
                       <>
-                        <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                        <span>Masuk ke Portal Pemilik</span>
+                        <Mail className="w-4 h-4 text-emerald-400" />
+                        <span>Kirim Kode OTP ke Email</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleQuickOwnerBypass}
-                    className="w-full h-11 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all shadow-sm"
-                  >
-                    <Sparkles className="w-4 h-4 text-yellow-300" />
-                    <span>⚡ Masuk Cepat Pemilik (Jayden) - 1 Klik</span>
                   </button>
                 </div>
 
@@ -609,14 +599,7 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                     )}
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={handleQuickOwnerBypass}
-                    className="w-full h-11 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow"
-                  >
-                    <Sparkles className="w-4 h-4 text-yellow-300" />
-                    <span>⚡ Lewati OTP & Masuk Langsung Sekarang</span>
-                  </button>
+
 
                   <div className="flex items-center justify-between text-xs pt-1">
                     <button

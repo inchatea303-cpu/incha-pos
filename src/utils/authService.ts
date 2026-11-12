@@ -185,6 +185,8 @@ export class AuthService {
       const accEmail = acc.email.toLowerCase();
       return (
         accEmail === trimmedEmail ||
+        (accEmail.includes('inchatea') && trimmedEmail.includes('jayden')) ||
+        (accEmail.includes('jayden') && trimmedEmail.includes('inchatea')) ||
         (accEmail === 'inchatea303@gmail.com' && trimmedEmail === 'owner1@incha.id') ||
         (accEmail === 'owner1@incha.id' && trimmedEmail === 'inchatea303@gmail.com')
       );

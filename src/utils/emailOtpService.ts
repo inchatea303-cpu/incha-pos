@@ -1,7 +1,7 @@
 // Layanan pengiriman email OTP nyata ke inchatea303@gmail.com via Resend / Serverless API
 
 const RESEND_KEY_STORAGE = 'incha_resend_api_key';
-export const BUILTIN_RESEND_KEY = typeof window !== 'undefined' ? atob('cmVfN2FoOWNVemtfS0xpaWVFRWNkWk1WWHlDOWY1cThiMUNM') : '';
+export const BUILTIN_RESEND_KEY = typeof window !== 'undefined' ? atob('cmVfS1BHZG8zcWhfSlEzajdSaUNWaU42a3IyVDJ6Sll5TmJH') : '';
 
 export function getStoredResendApiKey(): string {
   try {
@@ -111,13 +111,48 @@ export async function sendRealOtpEmail(
           }),
         });
 
-        const directData = await directRes.json();
+        let directData = await directRes.json();
         if (directRes.ok) {
           return {
             success: true,
             message: `Email OTP asli terkirim ke inbox ${toEmail}!`,
           };
         }
+
+        // Jika testing sandbox hanya mengizinkan pengiriman ke akun Google terdaftar
+        if (directData.message && directData.message.includes('jaydenchristian840@gmail.com')) {
+          const retryRes = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${localApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              from: 'INCHA POS Keamanan <onboarding@resend.dev>',
+              to: ['jaydenchristian840@gmail.com'],
+              subject: `[INCHA POS] Kode OTP Keamanan Login: ${otpCode}`,
+              html: `
+                <div style="font-family: sans-serif; max-width: 480px; margin: auto; padding: 24px; border: 1px solid #e2dfd7; border-radius: 16px;">
+                  <h2 style="color: #1B2A5C; margin: 0 0 12px 0;">INCHA Milk Tea</h2>
+                  <p style="color: #5B6478; font-size: 14px;">Halo <strong>${ownerName}</strong>,</p>
+                  <p style="color: #1B2A5C; font-size: 14px;">Kode OTP verifikasi masuk ke portal kasir:</p>
+                  <div style="background: #FAF8F4; border: 2px dashed #1B2A5C; padding: 18px; text-align: center; border-radius: 12px; margin: 20px 0;">
+                    <span style="font-size: 34px; font-weight: 800; letter-spacing: 6px; color: #1B2A5C; font-family: monospace;">${otpCode}</span>
+                  </div>
+                  <p style="color: #D7262E; font-size: 12px; font-weight: 600;">Berlaku 5 menit. Jangan berikan kepada siapa pun.</p>
+                </div>
+              `,
+            }),
+          });
+          const retryData = await retryRes.json();
+          if (retryRes.ok) {
+            return {
+              success: true,
+              message: `Email OTP asli terkirim ke inbox Gmail Anda: jaydenchristian840@gmail.com!`,
+            };
+          }
+        }
+
         return {
           success: false,
           error: directData.message || 'Gagal mengirim email via Resend.',

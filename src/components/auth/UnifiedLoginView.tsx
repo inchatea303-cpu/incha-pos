@@ -173,10 +173,13 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     if (sendResult.success) {
       setAdminSuccess(`Kode OTP asli telah terkirim ke inbox ${adminEmail}! Silakan cek aplikasi Gmail Anda.`);
     } else if (sendResult.needApiKey) {
-      setAdminSuccess(`Kode verifikasi keamanan telah dibuat. Silakan periksa inbox email atau atur API key.`);
+      setAdminError(sendResult.error || 'Resend API Key diperlukan agar email masuk ke inbox Gmail.');
       setIsApiKeyModalOpen(true);
     } else {
       setAdminError(sendResult.error || 'Gagal mengirim email OTP.');
+      if (sendResult.error && sendResult.error.toLowerCase().includes('api key')) {
+        setIsApiKeyModalOpen(true);
+      }
     }
   };
 
@@ -547,9 +550,21 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
 
                 {/* Error Banner */}
                 {adminError && (
-                  <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-[#D7262E] text-xs font-medium flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>{adminError}</span>
+                  <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-[#D7262E] text-xs font-medium space-y-2">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>{adminError}</span>
+                    </div>
+                    <div className="pt-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setIsApiKeyModalOpen(true)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#D7262E] hover:bg-red-700 text-white font-bold text-[11px] rounded-lg transition-colors shadow-xs"
+                      >
+                        <Settings className="w-3.5 h-3.5" />
+                        <span>Pasang / Ubah Resend API Key</span>
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -572,15 +587,17 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                 </div>
 
                 {/* Status Pengiriman Email Riil */}
-                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs space-y-1.5">
-                  <div className="flex items-center gap-2 text-emerald-900 font-bold">
-                    <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Email OTP Asli Berhasil Terkirim ke Inbox!</span>
+                {!adminError && adminSuccess && (
+                  <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs space-y-1.5">
+                    <div className="flex items-center gap-2 text-emerald-900 font-bold">
+                      <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>Email OTP Asli Berhasil Terkirim ke Inbox!</span>
+                    </div>
+                    <p className="text-[11px] text-emerald-800 leading-relaxed">
+                      Kode verifikasi 6-digit telah dikirimkan langsung ke aplikasi Gmail Anda di <strong className="font-mono text-[#1B2A5C]">{adminEmail}</strong>. Silakan buka aplikasi Gmail di HP / laptop Anda untuk menyalin kode keamanan tersebut.
+                    </p>
                   </div>
-                  <p className="text-[11px] text-emerald-800 leading-relaxed">
-                    Kode verifikasi 6-digit telah dikirimkan langsung ke aplikasi Gmail Anda di <strong className="font-mono text-[#1B2A5C]">{adminEmail}</strong>. Silakan buka aplikasi Gmail di HP / laptop Anda untuk menyalin kode keamanan tersebut.
-                  </p>
-                </div>
+                )}
 
                 {/* Tombol Verifikasi & Masuk */}
                 <div className="pt-1 space-y-2">

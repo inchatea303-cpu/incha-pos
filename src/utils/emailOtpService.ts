@@ -65,12 +65,16 @@ export async function sendRealOtpEmail(
       };
     }
 
-    if (data.needApiKey) {
-      // Jika API Key belum terpasang
+    const isInvalidKey =
+      data.needApiKey ||
+      (data.error && data.error.toLowerCase().includes('api key'));
+
+    if (isInvalidKey) {
       return {
         success: false,
         needApiKey: true,
-        error: data.error || 'Resend API Key belum diatur.',
+        error:
+          'API Key Resend tidak valid atau kedaluwarsa. Silakan masukkan API Key Resend baru dari resend.com agar email masuk ke inbox Gmail.',
       };
     }
 

@@ -15,20 +15,18 @@ export default async function handler(req, res) {
   try {
     const { to, otp, ownerName, apiKey: clientKey } = req.body || {};
 
-    const fallbackKey = Buffer.from('cmVfN2FoOWNVemtfS0xpaWVFRWNkWk1WWHlDOWY1cThiMUNM', 'base64').toString('utf-8');
     const targetEmail = to || 'inchatea303@gmail.com';
     const activeApiKey =
       process.env.RESEND_API_KEY ||
       req.headers['x-resend-key'] ||
-      clientKey ||
-      fallbackKey;
+      clientKey;
 
     if (!activeApiKey) {
       return res.status(400).json({
         success: false,
         needApiKey: true,
         error:
-          'RESEND_API_KEY belum dikonfigurasi. Silakan masukkan Resend API Key gratis dari resend.com agar email benar-benar masuk ke Gmail.',
+          'Resend API Key belum diatur. Buat API Key gratis di resend.com (30 detik via Login Google) agar kode OTP terkirim ke inbox Gmail Anda.',
       });
     }
 
@@ -90,9 +88,13 @@ export default async function handler(req, res) {
 
     if (!emailResponse.ok) {
       console.error('[Resend Error]', data);
+      const isInvalid = data.message && data.message.toLowerCase().includes('api key');
       return res.status(emailResponse.status).json({
         success: false,
-        error: data.message || 'Gagal mengirim email via Resend API.',
+        needApiKey: isInvalid,
+        error: isInvalid
+          ? 'Resend API Key tidak valid. Silakan masukkan API Key baru gratis dari resend.com.'
+          : (data.message || 'Gagal mengirim email via Resend API.'),
       });
     }
 

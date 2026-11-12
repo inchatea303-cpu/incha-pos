@@ -82,6 +82,17 @@ export const AppContent: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Tombol Masuk ke Portal Pemilik */}
+            <button
+              type="button"
+              onClick={logoutCashier}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/30 text-xs font-bold transition-all duration-150"
+              title="Buka portal pemilik & laporan omzet"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-300" />
+              <span>Portal Pemilik</span>
+            </button>
+
             {/* Tombol Keluar Kasir */}
             <button
               type="button"

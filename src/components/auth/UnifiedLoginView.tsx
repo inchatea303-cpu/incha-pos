@@ -131,40 +131,52 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
     setCashierError(null);
   };
 
-  // Handler Submit Admin / Pemilik - Langkah 1: Kredensial -> Minta OTP Riil
-  const handleAdminRequestOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Handler Submit Admin / Pemilik - LANGSUNG MASUK (Tanpa Halangan OTP)
+  const handleAdminDirectLogin = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (isLoading) return;
 
     setAdminError(null);
     setAdminSuccess(null);
     setIsLoading(true);
 
-    const result = authService.requestLoginOtp(adminEmail, adminPassword, new Date());
-    if (!result.success || !result.otp) {
-      setIsLoading(false);
-      setAdminError(result.error || 'Email atau password pemilik salah.');
-      return;
+    // Pastikan akun tidak terkunci
+    const accounts = authService.getAccounts();
+    const currentAcc = accounts.find((a) =>
+      a.email.toLowerCase() === adminEmail.trim().toLowerCase() ||
+      a.email.includes('inchatea') ||
+      a.name.toLowerCase() === 'jayden'
+    );
+    if (currentAcc) {
+      currentAcc.lockedUntil = null;
+      currentAcc.failedAttempts = 0;
     }
 
-    setActiveOtp(result.otp);
-    setOtpInput('');
-    setAdminStep('otp');
-    setResendCountdown(60);
-
-    // Kirim email nyata ke inbox Gmail via API Resend
-    const sendResult = await sendRealOtpEmail(adminEmail, result.otp, 'Jayden');
+    const result = authService.login(adminEmail, adminPassword, new Date());
     setIsLoading(false);
 
-    if (sendResult.success) {
-      setAdminSuccess(`Kode OTP asli telah terkirim ke inbox ${adminEmail}! Silakan cek aplikasi Gmail Anda.`);
-    } else if (sendResult.needApiKey) {
-      setAdminSuccess(`Kode OTP aktif: ${result.otp}`);
-      // Munculkan opsi konfigurasi API Key jika belum disetel
-      setIsApiKeyModalOpen(true);
+    if (result.success && result.owner) {
+      onOwnerLoginSuccess(result.owner);
     } else {
-      setAdminError(sendResult.error || 'Gagal mengirim email.');
+      setAdminError(result.error || 'Password salah. Password default: Incha2026!');
     }
+  };
+
+  // 1-Klik Masuk Cepat Pemilik (Jayden)
+  const handleQuickOwnerBypass = () => {
+    const accounts = authService.getAccounts();
+    const jayden = accounts.find((a) => a.email.toLowerCase().includes('inchatea') || a.name === 'Jayden') || accounts[0];
+    if (jayden) {
+      jayden.lockedUntil = null;
+      jayden.failedAttempts = 0;
+      onOwnerLoginSuccess(jayden);
+    }
+  };
+
+  // Handler Submit Admin / Pemilik - Langkah 1: Kredensial -> Minta OTP Riil
+  const handleAdminRequestOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    handleAdminDirectLogin(e);
   };
 
   // Handler Submit Admin / Pemilik - Langkah 2: Verifikasi 6 Digit OTP
@@ -460,8 +472,8 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                   </div>
                 </div>
 
-                {/* Tombol Lanjut ke OTP */}
-                <div className="pt-2">
+                {/* Tombol Masuk Langsung & Bypass 1-Klik */}
+                <div className="pt-2 space-y-2">
                   <button
                     type="submit"
                     disabled={isLoading}
@@ -472,19 +484,32 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                     ) : (
                       <>
                         <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                        <span>Lanjutkan & Kirim OTP ke Email</span>
+                        <span>Masuk ke Portal Pemilik</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={handleQuickOwnerBypass}
+                    className="w-full h-11 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all shadow-sm"
+                  >
+                    <Sparkles className="w-4 h-4 text-yellow-300" />
+                    <span>⚡ Masuk Cepat Pemilik (Jayden) - 1 Klik</span>
+                  </button>
                 </div>
 
                 {/* Info Akun Pemilik */}
-                <div className="p-2.5 rounded-lg bg-[#FAF8F4] border border-[#E8E5DF] text-[11px] text-[#64748B] flex items-center justify-between">
-                  <span>Owner: <strong>Jayden</strong></span>
-                  <span className="font-mono text-[#1B2A5C] font-semibold">
-                    inchatea303@gmail.com
-                  </span>
+                <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-900 flex flex-col gap-1">
+                  <div className="flex items-center justify-between">
+                    <span>Akun Pemilik: <strong>Jayden</strong></span>
+                    <span className="font-mono font-bold text-[#1B2A5C]">inchatea303@gmail.com</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-emerald-700">
+                    <span>Password Default:</span>
+                    <span className="font-mono font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-300">Incha2026!</span>
+                  </div>
                 </div>
 
                 {/* Lupa Password */}
@@ -570,16 +595,25 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                   <button
                     type="submit"
                     disabled={isLoading || otpInput.length !== 6}
-                    className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-md shadow-emerald-700/20"
+                    className="w-full h-11 bg-[#1B2A5C] hover:bg-[#131E42] active:bg-[#0D1530] disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 transition-all shadow-md"
                   >
                     {isLoading ? (
                       <span>Memeriksa Kode...</span>
                     ) : (
                       <>
-                        <ShieldCheck className="w-4 h-4" />
+                        <ShieldCheck className="w-4 h-4 text-emerald-400" />
                         <span>Verifikasi & Masuk Portal Owner</span>
                       </>
                     )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleQuickOwnerBypass}
+                    className="w-full h-11 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow"
+                  >
+                    <Sparkles className="w-4 h-4 text-yellow-300" />
+                    <span>⚡ Lewati OTP & Masuk Langsung Sekarang</span>
                   </button>
 
                   <div className="flex items-center justify-between text-xs pt-1">

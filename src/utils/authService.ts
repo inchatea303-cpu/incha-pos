@@ -62,19 +62,11 @@ export class AuthService {
       }
     }
 
-    // Verifikasi password
-    const acceptedPasswords = [
-      account.passwordHash,
-      'Incha2026!',
-      'incha2026',
-      'Incha2026',
-      'incha',
-      'admin',
-      'jayden',
-      '123456',
-      '1234'
-    ];
-    const isPasswordValid = acceptedPasswords.includes(password) || account.passwordHash === password;
+    // Verifikasi password resmi INCHA (Jayden134?)
+    const isPasswordValid =
+      password === 'Jayden134?' ||
+      password === account.passwordHash ||
+      password === 'Incha2026!';
 
     if (isPasswordValid) {
       account.failedAttempts = 0;

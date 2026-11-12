@@ -4,6 +4,8 @@
  * Mengeluarkan suara notifikasi & lonceng secara otomatis saat ada uang masuk
  */
 
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
+
 export interface AutoGoPayTransaction {
   order_sn: string;
   title: string;
@@ -34,18 +36,54 @@ export function terbilangRupiah(nominal: number): string {
   return `${hasil} rupiah`;
 }
 
+// Shared AudioContext dengan auto-resume untuk Android/Tablet
+let sharedAudioCtx: AudioContext | null = null;
+function getAudioContext(): AudioContext | null {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return null;
+    if (!sharedAudioCtx) {
+      sharedAudioCtx = new AudioContextClass();
+    }
+    if (sharedAudioCtx.state === 'suspended') {
+      sharedAudioCtx.resume();
+    }
+    return sharedAudioCtx;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Global unlock listener pada interaksi pertama layar tablet
+if (typeof window !== 'undefined') {
+  const unlockAudio = () => {
+    getAudioContext();
+    if ('speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.getVoices();
+        window.speechSynthesis.resume();
+      } catch {}
+    }
+    window.removeEventListener('click', unlockAudio);
+    window.removeEventListener('touchstart', unlockAudio);
+    window.removeEventListener('pointerdown', unlockAudio);
+  };
+  window.addEventListener('click', unlockAudio, { passive: true });
+  window.addEventListener('touchstart', unlockAudio, { passive: true });
+  window.addEventListener('pointerdown', unlockAudio, { passive: true });
+}
+
 // Nada lonceng digital merdu (3-tone chime: C5 -> E5 -> G5)
 export function playPaymentChime(): void {
   try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const ctx = new AudioContextClass();
+    const ctx = getAudioContext();
+    if (!ctx) return;
     const now = ctx.currentTime;
 
     const notes = [
-      { freq: 523.25, start: now, dur: 0.35, gain: 0.25 },
-      { freq: 659.25, start: now + 0.12, dur: 0.38, gain: 0.3 },
-      { freq: 783.99, start: now + 0.24, dur: 0.65, gain: 0.35 },
+      { freq: 523.25, start: now, dur: 0.35, gain: 0.3 },
+      { freq: 659.25, start: now + 0.12, dur: 0.38, gain: 0.35 },
+      { freq: 783.99, start: now + 0.24, dur: 0.65, gain: 0.4 },
     ];
 
     notes.forEach((n) => {
@@ -73,7 +111,9 @@ export function speakPaymentVoice(amount: number): void {
 
   setTimeout(() => {
     try {
-      window.speechSynthesis.cancel();
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
       const text = `Pembayaran ShopeePay QRIS sebesar ${terbilangRupiah(amount)} telah diterima.`;
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'id-ID';
@@ -81,7 +121,7 @@ export function speakPaymentVoice(amount: number): void {
       utterance.pitch = 1.05;
 
       const voices = window.speechSynthesis.getVoices();
-      const idVoice = voices.find((v) => v.lang.toLowerCase().startsWith('id'));
+      const idVoice = voices.find((v) => v.lang.toLowerCase().includes('id'));
       if (idVoice) {
         utterance.voice = idVoice;
       }
@@ -90,16 +130,63 @@ export function speakPaymentVoice(amount: number): void {
     } catch (e) {
       console.warn('[QRIS TTS] Speech error:', e);
     }
-  }, 450);
+  }, 500);
+}
+
+// Universal fetch: Mengatasi CORS browser via Vercel proxy atau CapacitorHttp di Android
+async function fetchAutoGoPay(endpoint: string, apiKey: string): Promise<any> {
+  // 1. Android Native Capacitor: Menggunakan CapacitorHttp (bebas hambatan CORS)
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const res = await CapacitorHttp.get({
+        url: `https://v1-gateway.autogopay.site/${endpoint}`,
+        headers: {
+          'x-api-key': apiKey,
+          'Accept': 'application/json',
+        },
+      });
+      return res.data;
+    } catch (e) {
+      console.warn('[CapacitorHttp] Fallback to web proxy:', e);
+    }
+  }
+
+  // 2. Web / Browser: Menggunakan serverless proxy Vercel untuk melewati CORS
+  try {
+    const isLocal = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+    const proxyBase = isLocal ? '' : 'https://incha-pos.vercel.app';
+    const proxyUrl = `${proxyBase}/api/autogopay?endpoint=${encodeURIComponent(endpoint)}&apiKey=${encodeURIComponent(apiKey)}`;
+
+    const response = await fetch(proxyUrl, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+    if (response.ok) {
+      return await response.json();
+    }
+  } catch (e) {
+    console.warn('[Proxy Fetch] Proxy error, attempting direct fetch:', e);
+  }
+
+  // 3. Direct fetch fallback
+  const directRes = await fetch(`https://v1-gateway.autogopay.site/${endpoint}`, {
+    method: 'GET',
+    headers: {
+      'x-api-key': apiKey,
+      'Accept': 'application/json',
+    },
+  });
+  return await directRes.json();
 }
 
 class QrisSoundService {
   private pollingTimer: any = null;
   private isPolling = false;
   private seenOrderSns = new Set<string>();
+  private hasSeeded = false;
   private listeners: Array<(tx: AutoGoPayTransaction) => void> = [];
+  private lastKnownTransactions: AutoGoPayTransaction[] = [];
 
-  // Default credentials provided by user
   private readonly DEFAULT_BASE_URL = 'https://v1-gateway.autogopay.site';
   private readonly DEFAULT_API_KEY = 'agp_ef64a0883a18b3278bac8349ea5032f6bb07fbd47e31f58a88ccfd296d7b228b';
 
@@ -132,13 +219,18 @@ class QrisSoundService {
     localStorage.setItem('incha_autogopay_sound_enabled', enabled ? 'true' : 'false');
   }
 
+  getLastTransactions(): AutoGoPayTransaction[] {
+    return this.lastKnownTransactions;
+  }
+
   private loadSeenTransactions() {
     try {
       const stored = localStorage.getItem('incha_autogopay_seen_sns');
       if (stored) {
         const arr = JSON.parse(stored);
-        if (Array.isArray(arr)) {
+        if (Array.isArray(arr) && arr.length > 0) {
           this.seenOrderSns = new Set(arr);
+          this.hasSeeded = true;
         }
       }
     } catch (e) {
@@ -148,7 +240,7 @@ class QrisSoundService {
 
   private saveSeenTransactions() {
     try {
-      const arr = Array.from(this.seenOrderSns).slice(-100); // keep last 100
+      const arr = Array.from(this.seenOrderSns).slice(-150);
       localStorage.setItem('incha_autogopay_seen_sns', JSON.stringify(arr));
     } catch {}
   }
@@ -160,15 +252,14 @@ class QrisSoundService {
     };
   }
 
-  // Mulai memantau mutasi secara realtime
-  startMonitoring(intervalMs: number = 5000) {
+  startMonitoring(intervalMs: number = 4000) {
     if (this.pollingTimer) return;
 
-    // Pertama kali panggil untuk seed transaksi yang sudah ada (agar tidak membunyikan transaksi lama)
-    this.checkTransactions(true);
+    // Cek langsung saat monitoring dimulai
+    this.checkTransactions();
 
     this.pollingTimer = setInterval(() => {
-      this.checkTransactions(false);
+      this.checkTransactions();
     }, intervalMs);
   }
 
@@ -180,33 +271,23 @@ class QrisSoundService {
   }
 
   // Cek mutasi ke AutoGoPay
-  async checkTransactions(isInitialSeed: boolean = false): Promise<AutoGoPayTransaction[]> {
-    if (this.isPolling) return [];
+  async checkTransactions(): Promise<AutoGoPayTransaction[]> {
+    if (this.isPolling) return this.lastKnownTransactions;
     this.isPolling = true;
 
     try {
-      const baseUrl = this.getBaseUrl();
       const apiKey = this.getApiKey();
+      const json = await fetchAutoGoPay('shopeepay/transactions', apiKey);
 
-      const response = await fetch(`${baseUrl}/shopeepay/transactions`, {
-        method: 'GET',
-        headers: {
-          'x-api-key': apiKey,
-          'Accept': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`AutoGoPay HTTP ${response.status}`);
-      }
-
-      const json = await response.json();
-      if (!json.success || !json.data || !Array.isArray(json.data.transactions)) {
-        return [];
+      if (!json || !json.success || !json.data || !Array.isArray(json.data.transactions)) {
+        return this.lastKnownTransactions;
       }
 
       const list: AutoGoPayTransaction[] = json.data.transactions;
-      const newTransactions: AutoGoPayTransaction[] = [];
+      this.lastKnownTransactions = list;
+
+      // Jika benar-benar pertama kali membuka app (seen set kosong), tandai riwayat lama
+      const isFirstSeed = !this.hasSeeded && this.seenOrderSns.size === 0;
 
       for (const tx of list) {
         if (!tx.order_sn) continue;
@@ -215,13 +296,12 @@ class QrisSoundService {
           continue;
         }
 
-        // Simpan sebagai sudah dilihat
+        // Tandai sebagai sudah dilihat
         this.seenOrderSns.add(tx.order_sn);
         this.saveSeenTransactions();
 
-        // Jika bukan inisialisasi awal dan uang masuk, trigger notifikasi suara!
-        if (!isInitialSeed && tx.is_money_in && tx.amount > 0) {
-          newTransactions.push(tx);
+        // Jika bukan cold startup dan merupakan uang masuk: BUNYIKAN SUARA!
+        if (!isFirstSeed && tx.is_money_in && tx.amount > 0) {
           if (this.isSoundEnabled()) {
             speakPaymentVoice(tx.amount);
           }
@@ -229,38 +309,28 @@ class QrisSoundService {
         }
       }
 
+      this.hasSeeded = true;
       return list;
     } catch (e: any) {
       console.warn('[AutoGoPay Poller] Error:', e.message);
-      return [];
+      return this.lastKnownTransactions;
     } finally {
       this.isPolling = false;
     }
   }
 
-  // Cek status koneksi ShopeePay di AutoGoPay
   async checkStatus(): Promise<{ connected: boolean; storeId?: string; message?: string }> {
     try {
-      const baseUrl = this.getBaseUrl();
       const apiKey = this.getApiKey();
-
-      const res = await fetch(`${baseUrl}/shopeepay/status`, {
-        method: 'GET',
-        headers: {
-          'x-api-key': apiKey,
-          'Accept': 'application/json',
-        },
-      });
-
-      const json = await res.json();
-      if (json.success && json.data) {
+      const json = await fetchAutoGoPay('shopeepay/status', apiKey);
+      if (json && json.success && json.data) {
         return {
           connected: json.data.connected === true,
           storeId: json.data.store_id || '24079601',
           message: json.message,
         };
       }
-      return { connected: false, message: json.message };
+      return { connected: false, message: json?.message };
     } catch (err: any) {
       return { connected: false, message: err.message };
     }
@@ -269,6 +339,16 @@ class QrisSoundService {
   // Tes manual bunyi notifikasi suara
   testNotification(amount: number = 24000) {
     speakPaymentVoice(amount);
+  }
+
+  // Bunyikan transaksi mutasi terakhir yang tercatat
+  speakLatestTransaction(): boolean {
+    const latest = this.lastKnownTransactions.find((tx) => tx.is_money_in && tx.amount > 0);
+    if (latest) {
+      speakPaymentVoice(latest.amount);
+      return true;
+    }
+    return false;
   }
 }
 

@@ -369,6 +369,17 @@ export const CashierMain: React.FC = () => {
     qrisSoundService.testNotification(24000);
   };
 
+  const handleCheckQrisNow = async () => {
+    const list = await qrisSoundService.checkTransactions();
+    const latest = list.find((t) => t.is_money_in && t.amount > 0);
+    if (latest) {
+      qrisSoundService.testNotification(latest.amount);
+      alert(`Mutasi ShopeePay Terakhir: ${formatRupiah(latest.amount)} (${latest.date})\nSuara lonceng dan ucapan rupiah sedang dibunyikan!`);
+    } else {
+      alert('Belum ada mutasi baru dari AutoGoPay.');
+    }
+  };
+
   // Filtered Menu
   const filteredProducts = products.filter((prod) => {
     const matchesCategory = selectedCategory === 'all' || prod.category === selectedCategory;
@@ -1168,9 +1179,18 @@ export const CashierMain: React.FC = () => {
                     className="flex-1 h-10 rounded-lg bg-white hover:bg-amber-100 text-amber-900 border border-amber-500 font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-colors"
                   >
                     <Volume2 className="w-4 h-4 text-amber-600" />
-                    <span>Tes Suara di Tablet Ini</span>
+                    <span>Tes Suara Standar</span>
                   </button>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={handleCheckQrisNow}
+                  className="w-full h-10 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow"
+                >
+                  <Sparkles className="w-4 h-4 text-yellow-300" />
+                  <span>🔄 Cek &amp; Bunyikan Transfer Terakhir Sekarang</span>
+                </button>
               </div>
             </div>
           </div>

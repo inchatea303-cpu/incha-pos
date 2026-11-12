@@ -173,28 +173,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [authenticatedOwner, setAuthenticatedOwner] = useState<OwnerAccount | null>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.OWNER_AUTH);
-      if (!saved || saved === 'undefined' || saved === 'null') return null;
-      const parsed: OwnerAccount = JSON.parse(saved);
-      if (!parsed || !parsed.email) return null;
-      // Migrasi nama dan email pemilik ke Jayden / inchatea303@gmail.com
-      if (parsed.email === 'owner1@incha.id' || parsed.name === 'Hendra Kusuma') {
-        parsed.name = 'Jayden';
-        parsed.email = 'inchatea303@gmail.com';
-        localStorage.setItem(STORAGE_KEYS.OWNER_AUTH, JSON.stringify(parsed));
+      if (saved && saved !== 'undefined' && saved !== 'null') {
+        const parsed: OwnerAccount = JSON.parse(saved);
+        if (parsed && parsed.email) {
+          parsed.name = 'Jayden';
+          parsed.email = 'inchatea303@gmail.com';
+          return parsed;
+        }
       }
-      const session = authService.checkSession(parsed.lastActiveAt);
-      if (!session.isValid) {
-        return null;
-      }
-      return parsed;
-    } catch {
-      return null;
-    }
+    } catch {}
+    // Default: Selalu otomatis aktif sebagai Jayden (Pemilik INCHA) tanpa perlu login
+    return INITIAL_OWNER_ACCOUNTS[0];
   });
 
-  const [isCashierAuthenticated, setIsCashierAuthenticated] = useState<boolean>(() => {
-    return localStorage.getItem('incha_cashier_authenticated') === 'true';
-  });
+  const [isCashierAuthenticated, setIsCashierAuthenticated] = useState<boolean>(true);
 
   const [role, setRole] = useState<UserRole>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.ROLE);

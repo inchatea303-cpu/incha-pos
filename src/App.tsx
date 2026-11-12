@@ -18,273 +18,173 @@ import {
   Lock,
   LogOut,
   Store,
+  Settings,
 } from 'lucide-react';
 
 export const AppContent: React.FC = () => {
   const {
     authenticatedOwner,
-    isCashierAuthenticated,
-    sessionExpiredMessage,
-    ownerLogin,
-    ownerLogout,
-    loginCashier,
-    logoutCashier,
     activeAlert,
     clearAlert,
   } = useStore();
 
   const [currentPage, setCurrentPage] = useState<OwnerNavigationPage>('dashboard');
-  const [isOwnerTestingCashier, setIsOwnerTestingCashier] = useState(false);
+  const [showFullOwnerDashboard, setShowFullOwnerDashboard] = useState(false);
 
-  // =========================================================================
-  // 1. JIKA BELUM ADA YANG LOGIN (Wajib Login Kasir atau Admin)
-  // =========================================================================
-  if (!authenticatedOwner && !isCashierAuthenticated) {
+  // Jika Pemilik ingin membuka menu pengaturan resep/biaya lengkap di sidebar
+  if (showFullOwnerDashboard) {
     return (
-      <UnifiedLoginView
-        onOwnerLoginSuccess={(owner) => {
-          ownerLogin(owner);
-          setIsOwnerTestingCashier(false);
-        }}
-        onCashierLoginSuccess={() => {
-          loginCashier('1234');
-        }}
-        sessionExpiredMessage={sessionExpiredMessage}
-      />
-    );
-  }
-
-  // =========================================================================
-  // 2. JIKA KASIR TERAUTENTIKASI (Hanya Akses Kasir POS, Tanpa Nama Petugas)
-  // =========================================================================
-  if (isCashierAuthenticated && !authenticatedOwner) {
-    return (
-      <div className="min-h-screen bg-[#F8F6F0] flex flex-col font-sans select-none">
-        {/* Header Bersih & Modern Khusus Kasir */}
-        <header className="bg-[#1B2A5C] text-white px-4 sm:px-6 py-3 flex items-center justify-between shadow-md border-b border-[#243775]">
-          <div className="flex items-center gap-3">
-            <img
-              src="/incha-emblem.png"
-              alt="INCHA"
-              className="w-9 h-9 rounded-full border border-white/30 shrink-0 object-cover shadow-xs"
-            />
-            <div>
-              <div className="text-sm font-bold text-white tracking-tight leading-tight flex items-center gap-2">
-                <span>INCHA Karang Tengah</span>
-                <span className="text-[10px] font-semibold uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
-                  Kasir POS
-                </span>
-              </div>
-              <div className="text-[11px] text-gray-300">
-                Artisan Milk Tea • Tangerang
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Tombol Masuk ke Portal Pemilik */}
+      <div className="min-h-screen bg-[#F8F6F0] flex font-sans antialiased text-[#1B2A5C]">
+        <Sidebar
+          currentPage={currentPage}
+          onNavigate={setCurrentPage}
+          currentOwner={authenticatedOwner || {
+            id: 'owner-1',
+            email: 'inchatea303@gmail.com',
+            name: 'Jayden',
+            role: 'pemilik',
+            passwordHash: 'Incha2026!',
+            failedAttempts: 0,
+            lockedUntil: null,
+            lastActiveAt: new Date().toISOString(),
+            createdAt: '2026-10-01T00:00:00.000Z',
+          }}
+          onLogout={() => setShowFullOwnerDashboard(false)}
+        />
+        <div className="flex-1 flex flex-col min-w-0 min-h-screen overflow-y-auto">
+          <header className="bg-white border-b border-[#E6E4DD] px-4 py-2.5 flex items-center justify-between shrink-0">
             <button
               type="button"
-              onClick={logoutCashier}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/30 text-xs font-bold transition-all duration-150"
-              title="Buka portal pemilik & laporan omzet"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-amber-300" />
-              <span>Portal Pemilik</span>
-            </button>
-
-            {/* Tombol Keluar Kasir */}
-            <button
-              type="button"
-              onClick={logoutCashier}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-[#D7262E] text-xs font-semibold text-white transition-all duration-150"
-              title="Keluar dari akun kasir dan kembali ke menu login"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Keluar Kasir</span>
-            </button>
-          </div>
-        </header>
-
-        {/* Konten POS Kasir Utama */}
-        <main className="flex-1 p-3 sm:p-5 max-w-6xl w-full mx-auto">
-          <CashierMain />
-        </main>
-      </div>
-    );
-  }
-
-  // =========================================================================
-  // 3. JIKA PEMILIK / ADMIN LOGIN
-  // =========================================================================
-
-  // A. Jika Pemilik sedang menguji/membuka Kasir POS
-  if (isOwnerTestingCashier) {
-    return (
-      <div className="min-h-screen bg-[#F8F6F0] flex flex-col font-sans select-none">
-        <header className="bg-[#1B2A5C] text-white px-4 sm:px-6 py-3 flex items-center justify-between shadow-md border-b border-[#243775]">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setIsOwnerTestingCashier(false)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold text-white transition-colors"
+              onClick={() => setShowFullOwnerDashboard(false)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#1B2A5C] text-white text-xs font-bold shadow hover:bg-[#131E42] transition-colors"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>Kembali ke Dashboard Pemilik</span>
+              <span>← Kembali ke Kasir &amp; Pantau Penjualan</span>
             </button>
-            <span className="text-gray-400">|</span>
-            <span className="text-xs font-medium text-gray-200 hidden sm:inline">
-              Mode Uji Kasir (Akses Pemilik)
-            </span>
-          </div>
+            <div className="text-xs text-gray-600 font-bold">
+              INCHA Karang Tengah • Pemilik: Jayden
+            </div>
+          </header>
 
-          <div className="text-xs text-gray-300 font-medium">
-            {authenticatedOwner?.name}
-          </div>
-        </header>
+          {activeAlert && (
+            <div className="p-4 max-w-[1120px] mx-auto w-full">
+              <AlertBanner message={activeAlert} onClose={clearAlert} />
+            </div>
+          )}
 
-        <main className="flex-1 p-3 sm:p-5 max-w-6xl w-full mx-auto">
-          <CashierMain />
-        </main>
+          <main className="flex-1 w-full max-w-[1120px] mx-auto p-4 sm:p-6 md:p-8">
+            {currentPage === 'dashboard' && (
+              <DashboardView
+                onNavigateToFinance={() => setCurrentPage('finance')}
+                onOpenCashier={() => setShowFullOwnerDashboard(false)}
+              />
+            )}
+            {currentPage === 'products' && (
+              <div className="space-y-6">
+                <div>
+                  <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">Produk &amp; HPP</h1>
+                  <p className="text-xs text-[#64748B] mt-1 font-medium">Kelola menu, resep bahan baku, dan target margin keuntungan</p>
+                </div>
+                <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-6">
+                  <ProductMaster />
+                </div>
+              </div>
+            )}
+            {currentPage === 'ingredients' && (
+              <div className="space-y-6">
+                <div>
+                  <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">Bahan &amp; Restock</h1>
+                  <p className="text-xs text-[#64748B] mt-1 font-medium">Pantau sisa stok bahan baku, batas minimum, dan harga beli</p>
+                </div>
+                <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-6">
+                  <IngredientMaster onOpenHistory={() => {}} />
+                </div>
+              </div>
+            )}
+            {currentPage === 'finance' && (
+              <FinanceView onOpenCashier={() => setShowFullOwnerDashboard(false)} />
+            )}
+            {currentPage === 'analysis' && (
+              <div className="space-y-6">
+                <div>
+                  <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">Analisa &amp; BEP</h1>
+                  <p className="text-xs text-[#64748B] mt-1 font-medium">Simulasi titik impas modal kemitraan INCHA Karang Tengah</p>
+                </div>
+                <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-6">
+                  <PackagingConfigCard />
+                </div>
+              </div>
+            )}
+            {currentPage === 'settings' && (
+              <div className="space-y-6">
+                <div>
+                  <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">Pengaturan</h1>
+                  <p className="text-xs text-[#64748B] mt-1 font-medium">Parameter operasional, akun pemilik, dan PIN kasir</p>
+                </div>
+                <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-6">
+                  <EmployeeManagementCard />
+                </div>
+              </div>
+            )}
+            {currentPage === 'audit' && (
+              <div className="space-y-6">
+                <div>
+                  <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">Riwayat Perubahan (Audit Log)</h1>
+                  <p className="text-xs text-[#64748B] mt-1 font-medium">Catatan otomatis setiap perubahan resep dan pengaturan</p>
+                </div>
+                <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-6">
+                  <AuditLogView />
+                </div>
+              </div>
+            )}
+          </main>
+        </div>
       </div>
     );
   }
 
-  // B. Portal Pemilik / Admin Lengkap
+  // TAMPILAN UTAMA TOKO (LANGSUNG KASIR & PANTAU PENJUALAN TANPA PORTAL SAMA SEKALI)
   return (
-    <div className="min-h-screen bg-[#F8F6F0] flex font-sans antialiased text-[#1B2A5C]">
-      {/* 1. Sidebar Kiri (240px di Desktop, 64px di Tablet 768px) */}
-      <Sidebar
-        currentPage={currentPage}
-        onNavigate={setCurrentPage}
-        currentOwner={authenticatedOwner!}
-        onLogout={ownerLogout}
-      />
-
-      {/* 2. Area Konten Utama (Maksimal 1120px dengan padding lapang) */}
-      <div className="flex-1 flex flex-col min-h-screen overflow-y-auto">
-        {/* Banner Alert bila ada */}
-        {activeAlert && (
-          <div className="p-4 max-w-[1120px] mx-auto w-full">
-            <AlertBanner message={activeAlert} onClose={clearAlert} />
+    <div className="min-h-screen bg-[#F8F6F0] flex flex-col font-sans select-none">
+      <header className="bg-[#1B2A5C] text-white px-4 sm:px-6 py-2.5 flex items-center justify-between shadow-md border-b border-[#243775]">
+        <div className="flex items-center gap-3">
+          <img
+            src="/incha-emblem.png"
+            alt="INCHA"
+            className="w-9 h-9 rounded-full border border-white/30 shrink-0 object-cover shadow-xs"
+          />
+          <div>
+            <div className="text-sm font-bold text-white tracking-tight leading-tight flex items-center gap-2">
+              <span>INCHA Karang Tengah</span>
+              <span className="text-[10px] font-semibold uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                Pemilik: Jayden
+              </span>
+            </div>
+            <div className="text-[11px] text-gray-300">
+              Artisan Milk Tea • Kasir &amp; Pengawasan Omzet Langsung
+            </div>
           </div>
-        )}
+        </div>
 
-        <main className="flex-1 w-full max-w-[1120px] mx-auto p-4 sm:p-6 md:p-8">
-          {currentPage === 'dashboard' && (
-            <DashboardView
-              onNavigateToFinance={() => setCurrentPage('finance')}
-              onOpenCashier={() => setIsOwnerTestingCashier(true)}
-            />
-          )}
+        <div className="flex items-center gap-2">
+          {/* Tombol Kelola Master Menu & Biaya */}
+          <button
+            type="button"
+            onClick={() => setShowFullOwnerDashboard(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/30 text-xs font-bold transition-all duration-150"
+            title="Kelola resep, bahan baku, dan biaya operasional"
+          >
+            <Settings className="w-3.5 h-3.5 text-amber-300" />
+            <span className="hidden sm:inline">Kelola Resep &amp; Biaya</span>
+            <span className="sm:hidden">Resep</span>
+          </button>
+        </div>
+      </header>
 
-          {currentPage === 'products' && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between pb-2">
-                <div>
-                  <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">
-                    Produk & HPP
-                  </h1>
-                  <p className="text-xs text-[#64748B] mt-1 font-medium">
-                    Kelola menu, resep bahan baku, dan target margin keuntungan
-                  </p>
-                </div>
-              </div>
-              <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-6">
-                <ProductMaster />
-              </div>
-            </div>
-          )}
-
-          {currentPage === 'ingredients' && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between pb-2">
-                <div>
-                  <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">
-                    Bahan & Restock
-                  </h1>
-                  <p className="text-xs text-[#64748B] mt-1 font-medium">
-                    Pantau sisa stok bahan baku, batas minimum, dan harga beli
-                  </p>
-                </div>
-              </div>
-              <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-6">
-                <IngredientMaster onOpenHistory={() => {}} />
-              </div>
-            </div>
-          )}
-
-          {currentPage === 'finance' && (
-            <FinanceView onOpenCashier={() => setIsOwnerTestingCashier(true)} />
-          )}
-
-          {currentPage === 'analysis' && (
-            <div className="space-y-6">
-              <div>
-                <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">
-                  Analisa & BEP
-                </h1>
-                <p className="text-xs text-[#64748B] mt-1 font-medium">
-                  Simulasi titik impas modal kemitraan INCHA Karang Tengah
-                </p>
-              </div>
-              <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-6">
-                <PackagingConfigCard />
-              </div>
-            </div>
-          )}
-
-          {currentPage === 'promo' && (
-            <div className="space-y-6">
-              <div>
-                <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">
-                  Promo & Diskon
-                </h1>
-                <p className="text-xs text-[#64748B] mt-1 font-medium">
-                  Atur strategi diskon, batas kuota per hari, dan cek dampak terhadap margin laba
-                </p>
-              </div>
-              <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-8 text-center">
-                <p className="text-sm text-[#64748B]">
-                  Modul Promo siap diatur sesuai rencana promosi outlet.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {currentPage === 'settings' && (
-            <div className="space-y-6">
-              <div>
-                <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">
-                  Pengaturan
-                </h1>
-                <p className="text-xs text-[#64748B] mt-1 font-medium">
-                  Parameter operasional, akun pemilik terdaftar, dan hak akses PIN kasir
-                </p>
-              </div>
-              <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-6">
-                <EmployeeManagementCard />
-              </div>
-            </div>
-          )}
-
-          {currentPage === 'audit' && (
-            <div className="space-y-6">
-              <div>
-                <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">
-                  Riwayat Perubahan (Audit Log)
-                </h1>
-                <p className="text-xs text-[#64748B] mt-1 font-medium">
-                  Catatan otomatis setiap perubahan resep, harga bahan, dan pengaturan
-                </p>
-              </div>
-              <div className="bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-6">
-                <AuditLogView />
-              </div>
-            </div>
-          )}
-        </main>
-      </div>
+      {/* Konten Utama: Kasir POS, Live Omzet & Anti-Bocor, Riwayat, Printer & Suara QRIS */}
+      <main className="flex-1 p-2 sm:p-4 max-w-6xl w-full mx-auto">
+        <CashierMain />
+      </main>
     </div>
   );
 };

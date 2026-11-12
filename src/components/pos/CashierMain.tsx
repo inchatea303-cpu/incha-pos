@@ -72,7 +72,7 @@ export const CashierMain: React.FC = () => {
   } = useStore();
 
   // POS State
-  const [activePosTab, setActivePosTab] = useState<'order' | 'history' | 'printer' | 'stock'>('order');
+  const [activePosTab, setActivePosTab] = useState<'order' | 'analytics' | 'history' | 'printer' | 'stock'>('order');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -173,6 +173,44 @@ export const CashierMain: React.FC = () => {
   const cashNum = parseFloat(cashInput) || 0;
   const cashChange = paymentMethod === 'cash' ? Math.max(0, cashNum - totalNet) : 0;
   const isCashSufficient = paymentMethod === 'qris' || cashNum >= totalNet;
+
+  // Perhitungan Laporan Penjualan Hari Ini & Sistem Pengawasan Anti-Bocor
+  const todayDateStr = new Date().toISOString().slice(0, 10);
+  const todayTransactions = transactions.filter(
+    (tx) => tx.timestamp.slice(0, 10) === todayDateStr && !tx.isVoided
+  );
+  const todayVoidedTransactions = transactions.filter(
+    (tx) => tx.timestamp.slice(0, 10) === todayDateStr && tx.isVoided
+  );
+
+  const todayGrossSales = todayTransactions.reduce((sum, tx) => sum + tx.totalNet, 0);
+  const todayCashSales = todayTransactions
+    .filter((tx) => tx.paymentMethod === 'cash')
+    .reduce((sum, tx) => sum + tx.totalNet, 0);
+  const todayQrisSales = todayTransactions
+    .filter((tx) => tx.paymentMethod === 'qris')
+    .reduce((sum, tx) => sum + tx.totalNet, 0);
+  const todayTotalCups = todayTransactions.reduce(
+    (acc, tx) => acc + tx.items.reduce((s, it) => s + it.quantity, 0),
+    0
+  );
+  const todayVoidTotal = todayVoidedTransactions.reduce((sum, tx) => sum + tx.totalNet, 0);
+
+  // Rekap Menu Terlaris Hari Ini
+  const productSalesMap = new Map<string, { name: string; cups: number; totalRupiah: number }>();
+  todayTransactions.forEach((tx) => {
+    tx.items.forEach((it) => {
+      const existing = productSalesMap.get(it.productName) || {
+        name: it.productName,
+        cups: 0,
+        totalRupiah: 0,
+      };
+      existing.cups += it.quantity;
+      existing.totalRupiah += it.subtotal;
+      productSalesMap.set(it.productName, existing);
+    });
+  });
+  const topSellingList = Array.from(productSalesMap.values()).sort((a, b) => b.cups - a.cups);
 
   // Add Item to Cart
   const handleAddToCart = (product: Product) => {
@@ -466,39 +504,51 @@ export const CashierMain: React.FC = () => {
         </div>
 
         {/* Quick Tab Switcher */}
-        <div className="flex gap-1 bg-[#1B2A5C] p-1 rounded-xl border border-[#243775]">
+        <div className="flex gap-1 bg-[#1B2A5C] p-1 rounded-xl border border-[#243775] overflow-x-auto no-scrollbar">
           <button
             type="button"
             onClick={() => setActivePosTab('order')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
               activePosTab === 'order'
                 ? 'bg-white text-[#1B2A5C] shadow'
                 : 'text-gray-300 hover:text-white'
             }`}
           >
-            Order ({cart.length})
+            <span>🛒 Order ({cart.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActivePosTab('analytics')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
+              activePosTab === 'analytics'
+                ? 'bg-amber-400 text-[#1B2A5C] shadow font-black'
+                : 'text-amber-200 hover:text-white'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>📊 Pantau Penjualan &amp; Anti-Bocor</span>
           </button>
           <button
             type="button"
             onClick={() => setActivePosTab('history')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
               activePosTab === 'history'
                 ? 'bg-white text-[#1B2A5C] shadow'
                 : 'text-gray-300 hover:text-white'
             }`}
           >
-            Riwayat
+            🧾 Riwayat ({todayTransactions.length})
           </button>
           <button
             type="button"
             onClick={() => setActivePosTab('printer')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
               activePosTab === 'printer'
                 ? 'bg-white text-[#1B2A5C] shadow'
                 : 'text-gray-300 hover:text-white'
             }`}
           >
-            Printer
+            🖨️ Printer &amp; QRIS
           </button>
         </div>
       </div>
@@ -787,6 +837,200 @@ export const CashierMain: React.FC = () => {
                 )}
               </div>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 3B. TAB: PANTAU PENJUALAN HARI INI & SISTEM ANTI-BOCOR */}
+      {activePosTab === 'analytics' && (
+        <div className="p-4 flex-1 overflow-y-auto space-y-4 bg-[#FAF8F4]">
+          {/* Header Banner */}
+          <div className="bg-[#1B2A5C] text-white p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                <span>Pengawasan Penjualan Real-Time</span>
+              </div>
+              <h2 className="text-lg font-black tracking-tight text-white mt-0.5">
+                Laporan Omzet &amp; Anti-Bocor Kasir
+              </h2>
+              <p className="text-xs text-gray-300">
+                Data terhubung langsung dengan kasir &amp; mutasi ShopeePay QRIS AutoGoPay
+              </p>
+            </div>
+            <div className="bg-white/10 px-3.5 py-2 rounded-xl border border-white/20 text-right shrink-0">
+              <div className="text-[10px] text-gray-300 font-medium">Omzet Bersih Hari Ini</div>
+              <div className="text-xl font-black text-yellow-300 tabular-nums">
+                {formatRupiah(todayGrossSales)}
+              </div>
+            </div>
+          </div>
+
+          {/* 4 Kartu Ringkasan Cepat */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-white p-3.5 rounded-xl border border-[#E2DED6] shadow-2xs">
+              <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                Total Omzet
+              </div>
+              <div className="text-base sm:text-lg font-black text-[#1B2A5C] tabular-nums mt-0.5">
+                {formatRupiah(todayGrossSales)}
+              </div>
+              <div className="text-[10px] text-emerald-600 font-semibold mt-1">
+                {todayTransactions.length} Transaksi Berhasil
+              </div>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-[#E2DED6] shadow-2xs">
+              <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                Cup Terjual
+              </div>
+              <div className="text-base sm:text-lg font-black text-amber-700 tabular-nums mt-0.5">
+                {todayTotalCups} Cup
+              </div>
+              <div className="text-[10px] text-gray-500 font-semibold mt-1">
+                Cocokkan dgn stok cup fisik
+              </div>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-emerald-300 shadow-2xs bg-emerald-50/40">
+              <div className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">
+                Uang Tunai di Laci
+              </div>
+              <div className="text-base sm:text-lg font-black text-emerald-800 tabular-nums mt-0.5">
+                {formatRupiah(todayCashSales)}
+              </div>
+              <div className="text-[10px] text-emerald-700 font-bold mt-1">
+                💵 Wajib ada di laci kasir
+              </div>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-blue-300 shadow-2xs bg-blue-50/40">
+              <div className="text-[10px] font-bold text-blue-800 uppercase tracking-wider">
+                QRIS ShopeePay
+              </div>
+              <div className="text-base sm:text-lg font-black text-blue-900 tabular-nums mt-0.5">
+                {formatRupiah(todayQrisSales)}
+              </div>
+              <div className="text-[10px] text-blue-700 font-bold mt-1">
+                📱 Masuk ke ShopeePay
+              </div>
+            </div>
+          </div>
+
+          {/* KOTAK KUNCI ANTI-BOCOR: REKONSILIASI KAS */}
+          <div className="bg-white p-4.5 rounded-2xl border-2 border-amber-400 shadow-sm space-y-3">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-amber-700 shrink-0" />
+              <div>
+                <h3 className="font-bold text-sm text-[#1B2A5C]">
+                  Audit Kas Fisik Saat Tutup Toko / Ganti Shift (Cegah Uang Bocor)
+                </h3>
+                <p className="text-[11px] text-gray-600">
+                  Instruksikan kasir untuk menghitung uang fisik di laci kasir setiap selesai shift:
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-xs space-y-1">
+                <div className="text-emerald-900 font-bold flex items-center justify-between">
+                  <span>Target Uang Tunai di Laci:</span>
+                  <span className="text-base font-black text-emerald-800 tabular-nums">
+                    {formatRupiah(todayCashSales)}
+                  </span>
+                </div>
+                <p className="text-[11px] text-emerald-800 leading-relaxed">
+                  Jika uang fisik yang dihitung di laci <strong>kurang dari {formatRupiah(todayCashSales)}</strong>, berarti ada selisih uang yang belum disetorkan oleh kasir.
+                </p>
+              </div>
+
+              <div className="p-3 bg-blue-50 rounded-xl border border-blue-200 text-xs space-y-1">
+                <div className="text-blue-900 font-bold flex items-center justify-between">
+                  <span>ShopeePay QRIS AutoGoPay:</span>
+                  <span className="text-base font-black text-blue-800 tabular-nums">
+                    {formatRupiah(todayQrisSales)}
+                  </span>
+                </div>
+                <p className="text-[11px] text-blue-800 leading-relaxed">
+                  Uang QRIS langsung tercatat di mutasi AutoGoPay dan berbunyi di speaker tablet, tidak bisa dimanipulasi manual.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* AUDIT PEMBATALAN / VOID (ANTI-CURANG KASIR) */}
+          <div className="bg-white p-4.5 rounded-2xl border border-[#E2DED6] shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
+                <div>
+                  <h3 className="font-bold text-sm text-[#1B2A5C]">
+                    Audit Transaksi Dibatalkan (VOID) Hari Ini
+                  </h3>
+                  <p className="text-[11px] text-gray-500">
+                    Kasir nakal biasanya membatalkan nota setelah terima uang tunai dari pelanggan.
+                  </p>
+                </div>
+              </div>
+              <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                todayVoidedTransactions.length === 0
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'bg-red-100 text-red-800'
+              }`}>
+                {todayVoidedTransactions.length === 0 ? 'Aman (0 Void)' : `${todayVoidedTransactions.length} Dibatalkan`}
+              </span>
+            </div>
+
+            {todayVoidedTransactions.length === 0 ? (
+              <div className="p-3 bg-gray-50 rounded-xl text-center text-xs text-gray-500 font-medium border border-dashed border-gray-300">
+                ✅ Tidak ada transaksi yang dibatalkan hari ini. Semua penjualan tercatat utuh.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {todayVoidedTransactions.map((tx) => (
+                  <div key={tx.id} className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs space-y-1">
+                    <div className="flex items-center justify-between text-red-900 font-bold">
+                      <span>{tx.invoiceNumber} • {formatRupiah(tx.totalNet)}</span>
+                      <span className="text-[11px] text-red-700">{formatDateWIB(tx.voidedAt || tx.timestamp)}</span>
+                    </div>
+                    <div className="text-[11px] text-red-800">
+                      <strong>Alasan Void:</strong> &quot;{tx.voidReason || 'Tanpa keterangan'}&quot; • Kasir: {tx.cashierName || 'Kasir'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* REKAP MENU TERLARIS HARI INI */}
+          <div className="bg-white p-4.5 rounded-2xl border border-[#E2DED6] shadow-sm space-y-3">
+            <h3 className="font-bold text-sm text-[#1B2A5C] flex items-center justify-between">
+              <span>Minuman Terjual Hari Ini ({topSellingList.length} Varian)</span>
+              <span className="text-xs font-bold text-amber-700">{todayTotalCups} Cup Total</span>
+            </h3>
+
+            {topSellingList.length === 0 ? (
+              <div className="p-4 bg-gray-50 rounded-xl text-center text-xs text-gray-500">
+                Belum ada minuman yang terjual hari ini.
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
+                {topSellingList.map((item, idx) => (
+                  <div key={item.name} className="py-2 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-[#1B2A5C] text-white text-[10px] font-bold flex items-center justify-center">
+                        {idx + 1}
+                      </span>
+                      <span className="font-semibold text-gray-800">{item.name}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-bold text-amber-700 mr-3">{item.cups} Cup</span>
+                      <span className="font-extrabold text-[#1B2A5C]">{formatRupiah(item.totalRupiah)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

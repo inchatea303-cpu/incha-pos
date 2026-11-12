@@ -28,6 +28,9 @@ import {
   Tag,
   Sparkles,
   Zap,
+  Volume2,
+  VolumeX,
+  QrCode,
 } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
 import {
@@ -46,6 +49,7 @@ import {
   getPairedBluetoothPrinters,
   NativeBTDevice,
 } from '../../utils/bluetoothPrinter';
+import { qrisSoundService, AutoGoPayTransaction } from '../../utils/qrisSoundService';
 import { ReceiptModal } from './ReceiptModal';
 import { CheckoutConfirmModal } from './CheckoutConfirmModal';
 
@@ -97,6 +101,10 @@ export const CashierMain: React.FC = () => {
     localStorage.getItem('incha_native_bt_label_address') || ''
   );
 
+  // QRIS Voice State (AutoGoPay Integration)
+  const [isQrisSoundOn, setIsQrisSoundOn] = useState<boolean>(qrisSoundService.isSoundEnabled());
+  const [lastQrisNotification, setLastQrisNotification] = useState<AutoGoPayTransaction | null>(null);
+
   const refreshPairedDevices = async () => {
     if (isNativeAndroidApp()) {
       const devs = await getPairedBluetoothPrinters();
@@ -141,6 +149,19 @@ export const CashierMain: React.FC = () => {
     }
 
     return () => unsubscribe();
+  }, []);
+
+  // Monitoring Mutasi QRIS AutoGoPay di Latar Belakang
+  useEffect(() => {
+    qrisSoundService.startMonitoring(5000);
+    const unsubQris = qrisSoundService.onPaymentReceived((tx) => {
+      setLastQrisNotification(tx);
+    });
+
+    return () => {
+      unsubQris();
+      qrisSoundService.stopMonitoring();
+    };
   }, []);
 
   // Calculations for Cart
@@ -338,6 +359,16 @@ export const CashierMain: React.FC = () => {
     alert(res.message);
   };
 
+  const handleToggleQrisSound = () => {
+    const next = !isQrisSoundOn;
+    setIsQrisSoundOn(next);
+    qrisSoundService.setSoundEnabled(next);
+  };
+
+  const handleTestQrisSound = () => {
+    qrisSoundService.testNotification(24000);
+  };
+
   // Filtered Menu
   const filteredProducts = products.filter((prod) => {
     const matchesCategory = selectedCategory === 'all' || prod.category === selectedCategory;
@@ -346,7 +377,29 @@ export const CashierMain: React.FC = () => {
   });
 
   return (
-    <div className="w-full max-w-5xl mx-auto bg-white rounded-2xl shadow-lg border border-[#E6E4DD] overflow-hidden my-2 flex flex-col min-h-[85vh]">
+    <div className="w-full max-w-5xl mx-auto bg-white rounded-2xl shadow-lg border border-[#E6E4DD] overflow-hidden my-2 flex flex-col min-h-[85vh] relative">
+      {/* Toast Notifikasi Suara QRIS Masuk */}
+      {lastQrisNotification && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-[#1B2A5C] text-white px-5 py-3 rounded-2xl shadow-2xl border-2 border-emerald-400 flex items-center gap-3 animate-bounce">
+          <Volume2 className="w-6 h-6 text-emerald-400 shrink-0" />
+          <div>
+            <div className="text-[10px] font-bold text-emerald-300 uppercase tracking-wider">
+              Pembayaran ShopeePay QRIS Masuk!
+            </div>
+            <div className="text-base font-extrabold text-white">
+              {formatRupiah(lastQrisNotification.amount)}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setLastQrisNotification(null)}
+            className="ml-3 p-1 rounded-full bg-white/20 hover:bg-white/30 text-white text-xs font-bold"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* 1. Android Status Bar & Sync Indicator */}
       <div className="bg-[#1B2A5C] text-white px-5 py-2.5 flex items-center justify-between text-xs select-none">
         <div className="flex items-center gap-2">
@@ -1054,6 +1107,70 @@ export const CashierMain: React.FC = () => {
 
               <div className="text-[11px] text-[#6B7280] leading-relaxed pt-2 border-t border-[#E2DED6]">
                 💡 <strong>Cara Kerja Cetak Sekaligus:</strong> Saat transaksi diselesaikan di kasir, aplikasi otomatis mengirimkan 1 lembar struk ke Printer Kasir dan mencetak stiker cup ke Printer EPPOS sesuai jumlah cup minuman yang dipesan.
+              </div>
+
+              {/* KARTU 3: NOTIFIKASI SUARA QRIS (AUTOGOPAY GATEWAY) */}
+              <div className="bg-amber-50/70 rounded-xl p-4 border border-amber-300 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <QrCode className="w-4 h-4 text-amber-700" />
+                    <span className="font-bold text-xs text-amber-950">
+                      Layanan Suara Notifikasi QRIS (AutoGoPay)
+                    </span>
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    ShopeePay Terhubung
+                  </span>
+                </div>
+
+                <p className="text-[11px] text-amber-900 leading-relaxed">
+                  Tablet kasir akan berbunyi lonceng dan bersuara <em>&quot;Pembayaran ShopeePay QRIS sebesar [nominal] telah diterima&quot;</em> secara otomatis setiap kali ada pelanggan yang scan &amp; bayar QRIS. Berfungsi persis seperti alat QRIS Soundbox tanpa perlu beli speaker khusus.
+                </p>
+
+                <div className="bg-white/90 rounded-lg p-2.5 border border-amber-200 text-[11px] space-y-1.5">
+                  <div className="flex justify-between items-center text-gray-700">
+                    <span className="text-gray-500">Toko ShopeePay:</span>
+                    <span className="font-bold text-[#1B2A5C]">INCHA KARANG TENGAH (ID: 24079601)</span>
+                  </div>
+                  <div className="flex justify-between items-center text-gray-700">
+                    <span className="text-gray-500">Gateway API:</span>
+                    <span className="font-mono text-[10px] text-gray-600">v1-gateway.autogopay.site</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleToggleQrisSound}
+                    className={`flex-1 h-10 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 shadow transition-colors ${
+                      isQrisSoundOn
+                        ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                        : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                    }`}
+                  >
+                    {isQrisSoundOn ? (
+                      <>
+                        <Volume2 className="w-4 h-4" />
+                        <span>Suara Notifikasi: AKTIF</span>
+                      </>
+                    ) : (
+                      <>
+                        <VolumeX className="w-4 h-4" />
+                        <span>Suara Notifikasi: NONAKTIF</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleTestQrisSound}
+                    className="flex-1 h-10 rounded-lg bg-white hover:bg-amber-100 text-amber-900 border border-amber-500 font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+                  >
+                    <Volume2 className="w-4 h-4 text-amber-600" />
+                    <span>Tes Suara di Tablet Ini</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>

@@ -17,10 +17,13 @@ import {
   CheckCircle,
   X,
   Trash2,
+  Database,
+  Download,
 } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
 import { formatRupiah, formatDateWIB, isSameDayWIB } from '../../utils/calculations';
 import { SalesTransaction, SalesChannel, PaymentMethod } from '../../types';
+import { BackupModal } from './BackupModal';
 
 interface FinanceViewProps {
   onOpenCashier: () => void;
@@ -43,6 +46,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ onOpenCashier }) => {
   const [dateRange, setDateRange] = useState<'today' | '7days' | '30days' | 'all'>('today');
   const [channelFilter, setChannelFilter] = useState<string>('all');
   const [paymentFilter, setPaymentFilter] = useState<string>('all');
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [resetIncludeExpenses, setResetIncludeExpenses] = useState(true);
   const [isResetExpensesOpen, setIsResetExpensesOpen] = useState(false);
@@ -167,6 +171,17 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ onOpenCashier }) => {
               }`}
             />
             <span>{isSyncing ? 'Sinkron...' : 'Sinkron Cloud'}</span>
+          </button>
+
+          {/* Tombol Backup & Pulihkan */}
+          <button
+            type="button"
+            onClick={() => setIsBackupModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-semibold rounded-xl transition-all shadow-xs"
+            title="Cadangkan data ke file JSON atau ekspor CSV"
+          >
+            <Database className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Backup &amp; Pulihkan</span>
           </button>
 
           {/* Tombol Reset Penjualan */}
@@ -880,6 +895,12 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ onOpenCashier }) => {
           </div>
         </div>
       )}
+
+      {/* Modal Pusat Backup & Pulihkan Data */}
+      <BackupModal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
+      />
     </div>
   );
 };

@@ -16,10 +16,13 @@ import {
   RotateCcw,
   RefreshCw,
   Cloud,
+  Database,
+  Download,
 } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
 import { formatRupiah, formatDateWIB, isSameDayWIB } from '../../utils/calculations';
 import { SalesTransaction } from '../../types';
+import { BackupModal } from './BackupModal';
 
 interface DashboardViewProps {
   onNavigateToFinance: () => void;
@@ -42,6 +45,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
 
   // 1. Tanggal Hari Ini (Format Indonesia)
   const today = new Date();
@@ -236,6 +240,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-emerald-600' : 'text-gray-500'}`} />
             <span>{isSyncing ? 'Menyinkronkan...' : 'Sinkron Cloud'}</span>
+          </button>
+
+          {/* Tombol Pusat Backup & Pulihkan Data */}
+          <button
+            type="button"
+            onClick={() => setIsBackupModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-semibold rounded-xl transition-all shadow-xs"
+            title="Cadangkan data ke file JSON, ekspor Excel CSV, atau pulihkan data omzet"
+          >
+            <Database className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Backup &amp; Pulihkan</span>
           </button>
 
           {/* Tombol Reset Transaksi Uji Coba */}
@@ -626,6 +641,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal Pusat Backup & Pulihkan Data */}
+      <BackupModal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
+      />
     </div>
   );
 };

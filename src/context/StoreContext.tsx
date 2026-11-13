@@ -131,10 +131,18 @@ interface StoreContextType {
   voidTransaction: (transactionId: string, reason: string) => void;
   syncPendingTransactions: () => Promise<number>;
   syncCloudData: () => Promise<void>;
-  // Reset & Audit
+  // Reset & Audit & Backup
   addAuditLog: (action: string, details: string, actor?: string) => void;
   resetTransactions: () => void;
   resetAllData: () => void;
+  restoreTransactionsBackup: (importedTxs: SalesTransaction[]) => Promise<number>;
+  recordManualSale: (data: {
+    menuName: string;
+    totalAmount: number;
+    cups: number;
+    paymentMethod: 'cash' | 'qris';
+    date?: string;
+  }) => Promise<SalesTransaction>;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -1019,6 +1027,109 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setActiveAlert('Seluruh transaksi uji coba berhasil dibersihkan! Omzet & penjualan kini Rp0 dan siap untuk jualan resmi.');
   };
 
+  // Pulihkan transaksi dari berkas cadangan (Backup Restore)
+  const restoreTransactionsBackup = async (importedTxs: SalesTransaction[]): Promise<number> => {
+    let countAdded = 0;
+    let mergedList: SalesTransaction[] = [];
+
+    setTransactions((prev) => {
+      const map = new Map<string, SalesTransaction>();
+      prev.forEach((t) => map.set(t.id, t));
+
+      importedTxs.forEach((t) => {
+        if (!map.has(t.id)) {
+          countAdded++;
+        }
+        map.set(t.id, t);
+      });
+
+      mergedList = Array.from(map.values()).sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+
+      try {
+        localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(mergedList));
+      } catch {}
+      return mergedList;
+    });
+
+    if (mergedList.length > 0) {
+      await pushTransactionsToCloud(mergedList);
+    }
+
+    addAuditLog(
+      'RESTORE_BACKUP',
+      `Memulihkan data backup: ${importedTxs.length} transaksi diproses (${countAdded} transaksi baru ditambahkan).`
+    );
+    setActiveAlert(`Berhasil memulihkan ${countAdded} transaksi baru dari file backup.`);
+    return countAdded;
+  };
+
+  // Catat Penjualan Manual / Susulan untuk Menyesuaikan Omzet Toko
+  const recordManualSale = async (data: {
+    menuName: string;
+    totalAmount: number;
+    cups: number;
+    paymentMethod: 'cash' | 'qris';
+    date?: string;
+  }): Promise<SalesTransaction> => {
+    const targetDate = data.date ? new Date(data.date) : new Date();
+    const dateStr = targetDate.toISOString().slice(0, 10).replace(/-/g, '');
+    const seq = (transactions.length + 1).toString().padStart(4, '0');
+    const invoiceNumber = `INV-${dateStr}-${seq}-M`;
+    const id = `tx-man-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+
+    const newTx: SalesTransaction = {
+      id,
+      invoiceNumber,
+      timestamp: targetDate.toISOString(),
+      cashierId: 'owner-manual',
+      cashierName: authenticatedOwner?.name || 'Pemilik (Manual)',
+      channel: 'direct',
+      paymentMethod: data.paymentMethod,
+      items: [
+        {
+          productId: 'manual-entry',
+          productName: data.menuName || 'Penjualan Minuman INCHA',
+          quantity: data.cups || 1,
+          unitPrice: Math.round(data.totalAmount / (data.cups || 1)),
+          discountAmount: 0,
+          subtotal: data.totalAmount,
+          hppPerUnit: Math.round((data.totalAmount / (data.cups || 1)) * 0.42),
+        },
+      ],
+      totalGross: data.totalAmount,
+      totalDiscount: 0,
+      totalNet: data.totalAmount,
+      totalHpp: Math.round(data.totalAmount * 0.42),
+      cashReceived: data.totalAmount,
+      cashChange: 0,
+      syncStatus: 'terkirim',
+      isVoided: false,
+    };
+
+    let updatedList: SalesTransaction[] = [];
+    setTransactions((prev) => {
+      updatedList = [newTx, ...prev];
+      try {
+        localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updatedList));
+      } catch {}
+      return updatedList;
+    });
+
+    try {
+      await pushTransactionsToCloud(updatedList);
+    } catch {}
+
+    addAuditLog(
+      'INPUT_MANUAL_OMZET',
+      `Pemilik mencatat penjualan susulan: ${newTx.invoiceNumber} senilai ${formatRupiah(data.totalAmount)} (${data.cups} cup) via ${data.paymentMethod.toUpperCase()}.`
+    );
+
+    setActiveAlert(`Penjualan sebesar ${formatRupiah(data.totalAmount)} (${data.cups} cup) berhasil ditambahkan ke omzet.`);
+    return newTx;
+  };
+
   const resetAllData = () => {
     localStorage.removeItem(STORAGE_KEYS.INGREDIENTS);
     localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
@@ -1104,6 +1215,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         addAuditLog,
         resetTransactions,
         resetAllData,
+        restoreTransactionsBackup,
+        recordManualSale,
       }}
     >
       {children}

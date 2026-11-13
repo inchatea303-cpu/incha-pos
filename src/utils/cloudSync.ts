@@ -26,6 +26,23 @@ export async function pushTransactionsToCloud(
         },
       }),
     });
+
+    if (res.status === 404) {
+      // Jika objek terhapus di restful-api.dev, buat kembali
+      const createRes = await fetch('https://api.restful-api.dev/objects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'incha-karang-tengah-sync',
+          data: {
+            transactions,
+            lastUpdated: new Date().toISOString(),
+          },
+        }),
+      });
+      return createRes.ok;
+    }
+
     return res.ok;
   } catch (err) {
     console.warn('[CloudSync] Gagal push transaksi ke cloud:', err);

@@ -12,6 +12,8 @@ import {
   calculateTheoreticalStock,
   calculateStockVariance,
   formatRupiah,
+  isSameDayWIB,
+  getDateStrWIB,
 } from './calculations';
 import { Ingredient, PackagingCosts, RecipeItem } from '../types';
 
@@ -208,5 +210,18 @@ describe('Rumus HPP, Margin, dan Titik Impas INCHA', () => {
     expect(employeeView.currentStock).toBe(50);
     expect(employeeView.buyPrice).toBeUndefined();
     expect(employeeView.costPerPortion).toBeUndefined();
+  });
+
+  it('11. isSameDayWIB dan getDateStrWIB akurat membandingkan hari kalender WIB', () => {
+    // 2026-11-13 pukul 20:00 WIB = 2026-11-13T13:00:00.000Z
+    const timeWibNight = '2026-11-13T13:00:00.000Z';
+    // 2026-11-13 pukul 08:00 WIB = 2026-11-13T01:00:00.000Z
+    const timeWibMorning = '2026-11-13T01:00:00.000Z';
+    // 2026-11-14 pukul 02:00 WIB = 2026-11-13T19:00:00.000Z (UTC tanggal 13, tapi WIB sudah tanggal 14!)
+    const timeNextDayEarlyWib = '2026-11-13T19:00:00.000Z';
+
+    expect(isSameDayWIB(timeWibNight, timeWibMorning)).toBe(true);
+    expect(isSameDayWIB(timeWibNight, timeNextDayEarlyWib)).toBe(false);
+    expect(getDateStrWIB(timeNextDayEarlyWib)).toBe('2026-11-14');
   });
 });

@@ -272,6 +272,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
+    // Cross-tab / Multi-window Storage Event Listener
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEYS.TRANSACTIONS && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) {
+            setTransactions(parsed);
+          }
+        } catch {}
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
     // Initial check pending offline queue
     getPendingOfflineTransactions().then((items) => {
       setPendingOfflineCount(items.length);
@@ -290,6 +303,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('storage', handleStorageChange);
       clearInterval(syncInterval);
     };
   }, []);
@@ -299,10 +313,56 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const cloudTxs = await fetchTransactionsFromCloud();
       if (cloudTxs && Array.isArray(cloudTxs)) {
         setTransactions((prev) => {
-          const existingIds = new Set(prev.map((t) => t.id));
-          const hasNew = cloudTxs.some((t) => !existingIds.has(t.id));
-          if (hasNew || cloudTxs.length !== prev.length) {
-            return cloudTxs;
+          // Merge by ID: gabungan cerdas (union) agar transaksi kasir lokal TIDAK PERNAH terhapus oleh cloud
+          const txMap = new Map<string, SalesTransaction>();
+
+          // Masukkan transaksi cloud
+          cloudTxs.forEach((t) => {
+            if (t && t.id) txMap.set(t.id, t);
+          });
+
+          // Masukkan transaksi lokal (prioritas mempertahankan status lokal)
+          prev.forEach((t) => {
+            if (t && t.id) {
+              const existing = txMap.get(t.id);
+              if (!existing) {
+                txMap.set(t.id, t);
+              } else {
+                // Jika salah satu void, pertahankan status void
+                if (t.isVoided && !existing.isVoided) {
+                  txMap.set(t.id, t);
+                }
+              }
+            }
+          });
+
+          const merged = Array.from(txMap.values()).sort(
+            (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+          );
+
+          // Jika lokal memiliki transaksi yang belum masuk ke cloud, dorong data gabungan ke cloud
+          const hasMissingInCloud = merged.some((m) => !cloudTxs.some((c) => c.id === m.id));
+          if (hasMissingInCloud) {
+            pushTransactionsToCloud(merged).catch((err) =>
+              console.warn('[CloudSync] Gagal push transaksi gabungan ke cloud:', err)
+            );
+          }
+
+          // Cek apakah data berubah sebelum memicu render ulang
+          const isDifferent =
+            merged.length !== prev.length ||
+            merged.some(
+              (m, i) =>
+                m.id !== prev[i]?.id ||
+                m.isVoided !== prev[i]?.isVoided ||
+                m.syncStatus !== prev[i]?.syncStatus
+            );
+
+          if (isDifferent) {
+            try {
+              localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(merged));
+            } catch {}
+            return merged;
           }
           return prev;
         });
@@ -714,6 +774,22 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const syncStatus: SyncStatus = isOnline ? 'terkirim' : 'lokal';
 
+    // Hitung real HPP per item dari resep dan biaya bahan baku
+    let calculatedTotalHpp = 0;
+    for (const item of saleData.items) {
+      const prod = products.find((p) => p.id === item.productId);
+      if (prod) {
+        let itemHpp = 0;
+        for (const recipeItem of prod.recipe) {
+          const ing = ingredients.find((i) => i.id === recipeItem.ingredientId);
+          if (ing) {
+            itemHpp += (ing.costPerPortion || 0) * recipeItem.amount;
+          }
+        }
+        calculatedTotalHpp += itemHpp * item.quantity;
+      }
+    }
+
     const newTx: SalesTransaction = {
       ...saleData,
       id,
@@ -721,6 +797,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       timestamp: now.toISOString(),
       syncStatus,
       isVoided: false,
+      totalHpp: calculatedTotalHpp > 0 ? calculatedTotalHpp : (saleData.totalHpp || 0),
     };
 
     // 1. PENGURANGAN STOK BAHAN OTOMATIS SESUAI RESEP
@@ -757,11 +834,23 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       })
     );
 
-    // 2. Simpan Transaksi ke State & LocalStorage
-    const updated = [newTx, ...transactions];
-    setTransactions(updated);
+    // 2. Simpan Transaksi ke State & LocalStorage (Real-time Immutably)
+    let updatedList: SalesTransaction[] = [];
+    setTransactions((prev) => {
+      const filtered = prev.filter((t) => t.id !== newTx.id);
+      updatedList = [newTx, ...filtered];
+      try {
+        localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updatedList));
+      } catch {}
+      return updatedList;
+    });
+
     // Push ke Cloud agar tablet kasir dan HP/Laptop pemilik langsung sinkron
-    pushTransactionsToCloud(updated);
+    try {
+      await pushTransactionsToCloud(updatedList.length > 0 ? updatedList : [newTx]);
+    } catch (err) {
+      console.warn('[CloudSync] Push transaksi baru gagal:', err);
+    }
 
     // 3. Simpan ke IndexedDB (Antrean Offline)
     try {
@@ -821,8 +910,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const now = new Date().toISOString();
     const actor = currentEmployee?.name || 'Kasir';
 
-    setTransactions((prev) =>
-      prev.map((tx) =>
+    let updatedAfterVoid: SalesTransaction[] = [];
+    setTransactions((prev) => {
+      updatedAfterVoid = prev.map((tx) =>
         tx.id === transactionId
           ? {
               ...tx,
@@ -832,7 +922,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               voidedBy: actor,
             }
           : tx
-      )
+      );
+      try {
+        localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updatedAfterVoid));
+      } catch {}
+      return updatedAfterVoid;
+    });
+
+    // Sinkronisasi status void ke cloud
+    pushTransactionsToCloud(updatedAfterVoid).catch((err) =>
+      console.warn('[CloudSync] Gagal push void ke cloud:', err)
     );
 
     addAuditLog(

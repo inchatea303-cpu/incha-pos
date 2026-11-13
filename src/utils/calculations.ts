@@ -168,3 +168,34 @@ export function formatDateWIB(dateInput: string | Date | number): string {
 
   return `${d} ${m} ${y}, ${hr}:${min} WIB`;
 }
+
+/**
+ * Dapatkan string tanggal YYYY-MM-DD dalam zona waktu Indonesia Barat (WIB / Asia/Jakarta)
+ */
+export function getDateStrWIB(dateInput: string | Date | number = new Date()): string {
+  if (!dateInput) return '';
+  const date = typeof dateInput === 'string' || typeof dateInput === 'number'
+    ? new Date(dateInput)
+    : dateInput;
+  if (isNaN(date.getTime())) return '';
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(date);
+  } catch {
+    // Fallback jika Intl timeZone tidak didukung
+    return date.toISOString().slice(0, 10);
+  }
+}
+
+/**
+ * Cek apakah dua waktu/tanggal berada di hari kalender yang sama dalam zona WIB
+ */
+export function isSameDayWIB(
+  dateInputA: string | Date | number,
+  dateInputB: string | Date | number = new Date()
+): boolean {
+  if (!dateInputA || !dateInputB) return false;
+  const strA = getDateStrWIB(dateInputA);
+  const strB = getDateStrWIB(dateInputB);
+  if (!strA || !strB) return false;
+  return strA === strB;
+}

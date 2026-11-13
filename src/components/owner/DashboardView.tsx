@@ -18,7 +18,7 @@ import {
   Cloud,
 } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
-import { formatRupiah, formatDateWIB } from '../../utils/calculations';
+import { formatRupiah, formatDateWIB, isSameDayWIB } from '../../utils/calculations';
 import { SalesTransaction } from '../../types';
 
 interface DashboardViewProps {
@@ -52,10 +52,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   ];
   const dateText = `Hari ini, ${days[today.getDay()]} ${today.getDate()} ${months[today.getMonth()]} ${today.getFullYear()}`;
 
-  // 2. Kalkulasi Ringkasan Transaksi Hari Ini
-  const todayStr = today.toISOString().slice(0, 10);
+  // 2. Kalkulasi Ringkasan Transaksi Hari Ini (Akurat Zona Waktu WIB)
+  const allValidTransactions = transactions.filter((tx) => !tx.isVoided);
+  const allTimeGross = allValidTransactions.reduce((acc, tx) => acc + tx.totalNet, 0);
+  const allTimeCups = allValidTransactions.reduce(
+    (acc, tx) => acc + tx.items.reduce((s, it) => s + it.quantity, 0),
+    0
+  );
+
   const todayTransactions = transactions.filter(
-    (tx) => tx.timestamp.slice(0, 10) === todayStr && !tx.isVoided
+    (tx) => isSameDayWIB(tx.timestamp, today) && !tx.isVoided
   );
 
   const todayGross = todayTransactions.reduce((acc, tx) => acc + tx.totalNet, 0);
@@ -65,20 +71,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   );
 
   // Estimasi HPP & Laba Bersih Hari Ini
-  // HPP rata-rata ~ Rp6.200 per cup jika data real kosong
   const todayEstimatedHpp = todayTransactions.reduce((acc, tx) => {
+    if (tx.totalHpp && tx.totalHpp > 0) return acc + tx.totalHpp;
     return (
       acc +
       tx.items.reduce((s, it) => {
         const prod = products.find((p) => p.id === it.productId);
-        // kalkulasi cepat atau default 40% dari harga jual
         const itemHpp = prod ? prod.sellPrice * 0.42 : it.unitPrice * 0.42;
         return s + itemHpp * it.quantity;
       }, 0)
     );
   }, 0);
 
-  // Biaya tetap harian: Sewa Rp900.000 / 30 = Rp30.000 / hari (sudah termasuk listrik)
+  // Biaya tetap harian: Sewa Rp900.000 / 30 = Rp30.000 / hari
   const dailyFixedCost =
     (businessParams.rentMonthly + businessParams.otherFixedMonthly) /
     (businessParams.operationalDaysPerMonth || 30);
@@ -92,27 +97,53 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     Math.round((todayCups / bepTargetCupsPerDay) * 100)
   );
 
-  // 3. Mock Data Grafik 14 Hari Terakhir (Omzet dan Laba)
-  const chartData = [
-    { date: '22 Okt', omzet: 750000, laba: 320000 },
-    { date: '23 Okt', omzet: 820000, laba: 380000 },
-    { date: '24 Okt', omzet: 910000, laba: 440000 },
-    { date: '25 Okt', omzet: 1100000, laba: 550000 },
-    { date: '26 Okt', omzet: 950000, laba: 460000 },
-    { date: '27 Okt', omzet: 780000, laba: 340000 },
-    { date: '28 Okt', omzet: 850000, laba: 390000 },
-    { date: '29 Okt', omzet: 1250000, laba: 620000 },
-    { date: '30 Okt', omzet: 1400000, laba: 710000 },
-    { date: '31 Okt', omzet: 1650000, laba: 840000 },
-    { date: '01 Nov', omzet: 1520000, laba: 770000 },
-    { date: '02 Nov', omzet: 980000, laba: 480000 },
-    { date: '03 Nov', omzet: 1050000, laba: 510000 },
-    {
-      date: 'Hari ini',
-      omzet: todayGross,
-      laba: todayNetProfit,
-    },
-  ];
+  // 3. Data Grafik 7 Hari Terakhir dari Transaksi Nyata (Real-time Live)
+  const chartData = React.useMemo(() => {
+    const daysToShow = 7;
+    const result = [];
+    const now = new Date();
+
+    for (let i = daysToShow - 1; i >= 0; i--) {
+      const targetDate = new Date();
+      targetDate.setDate(now.getDate() - i);
+      const isToday = i === 0;
+
+      const dayTxs = transactions.filter(
+        (tx) => isSameDayWIB(tx.timestamp, targetDate) && !tx.isVoided
+      );
+
+      const dayGross = dayTxs.reduce((sum, tx) => sum + tx.totalNet, 0);
+      const dayHpp = dayTxs.reduce((sum, tx) => {
+        if (tx.totalHpp && tx.totalHpp > 0) return sum + tx.totalHpp;
+        return (
+          sum +
+          tx.items.reduce((s, it) => {
+            const prod = products.find((p) => p.id === it.productId);
+            const itemHpp = prod ? prod.sellPrice * 0.42 : it.unitPrice * 0.42;
+            return s + itemHpp * it.quantity;
+          }, 0)
+        );
+      }, 0);
+
+      const dayProfit = Math.max(0, dayGross - dayHpp);
+
+      const dayLabel = isToday
+        ? 'Hari ini'
+        : targetDate.toLocaleDateString('id-ID', {
+            day: '2-digit',
+            month: 'short',
+            timeZone: 'Asia/Jakarta',
+          });
+
+      result.push({
+        date: dayLabel,
+        omzet: dayGross,
+        laba: dayProfit,
+      });
+    }
+
+    return result;
+  }, [transactions, products]);
 
   // 4. Stok Menipis (Maksimal 5 Bahan)
   const lowStockIngredients = ingredients
@@ -133,7 +164,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         profit: 0,
       };
       existing.cups += it.quantity;
-      const profitPerCup = it.unitPrice * 0.55; // margin rata-rata
+      const profitPerCup = it.unitPrice * 0.55;
       existing.profit += profitPerCup * it.quantity;
       menuSalesMap[it.productId] = existing;
     });
@@ -143,8 +174,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     .sort((a, b) => b.cups - a.cups)
     .slice(0, 5);
 
-  // Menu terlaris hari ini berdasarkan data transaksi nyata
-  const displayBestSellers = bestSellingToday;
+  // Akumulasi menu terlaris jika hari ini belum ada order baru
+  const allTimeMenuSalesMap: Record<
+    string,
+    { name: string; cups: number; profit: number }
+  > = {};
+
+  allValidTransactions.forEach((tx) => {
+    tx.items.forEach((it) => {
+      const existing = allTimeMenuSalesMap[it.productId] || {
+        name: it.productName,
+        cups: 0,
+        profit: 0,
+      };
+      existing.cups += it.quantity;
+      const profitPerCup = it.unitPrice * 0.55;
+      existing.profit += profitPerCup * it.quantity;
+      allTimeMenuSalesMap[it.productId] = existing;
+    });
+  });
+
+  const bestSellingAllTime = Object.values(allTimeMenuSalesMap)
+    .sort((a, b) => b.cups - a.cups)
+    .slice(0, 5);
+
+  const displayBestSellers = bestSellingToday.length > 0 ? bestSellingToday : bestSellingAllTime;
+  const isShowingAllTimeBestSellers = bestSellingToday.length === 0 && bestSellingAllTime.length > 0;
 
   // 6. Transaksi Terakhir (Maksimal 10 Baris)
   const recentTransactions = transactions.slice(0, 10);
@@ -210,61 +265,76 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* 2. Empat Kartu Angka Utama (Tinggi 96px) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Omzet Hari Ini */}
-        <div className="h-26 bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-4 flex flex-col justify-between hover:border-[#1B2A5C]/30 transition-colors">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-[#64748B]">
-            Omzet Hari Ini
-          </div>
-          <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-bold text-[#1B2A5C] tabular-nums tracking-tight">
-              {formatRupiah(todayGross)}
+        <div className="min-h-26 bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-4 flex flex-col justify-between hover:border-[#1B2A5C]/30 transition-colors">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-[#64748B]">
+              Omzet Hari Ini
             </span>
             <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md flex items-center gap-0.5 tabular-nums">
               <ArrowUpRight className="w-3.5 h-3.5" />
               {todayGross > 0 ? '+100%' : '0%'}
             </span>
           </div>
+          <div>
+            <div className="text-2xl font-bold text-[#1B2A5C] tabular-nums tracking-tight">
+              {formatRupiah(todayGross)}
+            </div>
+            <p className="text-[11px] text-[#64748B] mt-0.5 font-medium tabular-nums">
+              Akumulasi: {formatRupiah(allTimeGross)} ({allValidTransactions.length} order)
+            </p>
+          </div>
         </div>
 
         {/* Cup Terjual Hari Ini */}
-        <div className="h-26 bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-4 flex flex-col justify-between hover:border-[#1B2A5C]/30 transition-colors">
+        <div className="min-h-26 bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-4 flex flex-col justify-between hover:border-[#1B2A5C]/30 transition-colors">
           <div className="text-[11px] font-bold uppercase tracking-wider text-[#64748B]">
-            Cup Terjual
+            Cup Terjual Hari Ini
           </div>
-          <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-bold text-[#1B2A5C] tabular-nums tracking-tight">
-              {todayCups} cup
-            </span>
-            <span className="text-xs text-[#64748B] font-medium">
-              target {bepTargetCupsPerDay} cup
-            </span>
+          <div>
+            <div className="flex items-baseline justify-between">
+              <span className="text-2xl font-bold text-[#1B2A5C] tabular-nums tracking-tight">
+                {todayCups} cup
+              </span>
+              <span className="text-xs text-[#64748B] font-medium tabular-nums">
+                target {bepTargetCupsPerDay} cup/hari
+              </span>
+            </div>
+            <p className="text-[11px] text-[#64748B] mt-0.5 font-medium tabular-nums">
+              Total terjual: {allTimeCups} cup
+            </p>
           </div>
         </div>
 
         {/* Laba Bersih Hari Ini */}
-        <div className="h-26 bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-4 flex flex-col justify-between hover:border-[#1B2A5C]/30 transition-colors">
+        <div className="min-h-26 bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-4 flex flex-col justify-between hover:border-[#1B2A5C]/30 transition-colors">
           <div className="text-[11px] font-bold uppercase tracking-wider text-[#64748B]">
             Laba Bersih Hari Ini
           </div>
-          <div className="flex items-baseline justify-between">
-            <span
-              className={`text-2xl font-bold tabular-nums tracking-tight ${
-                todayNetProfit >= 0 ? 'text-emerald-700' : 'text-[#D7262E]'
-              }`}
-            >
-              {formatRupiah(todayGross > 0 ? todayNetProfit : 0)}
-            </span>
-            <span className="text-xs text-[#64748B] font-medium">
-              {todayGross > 0
-                ? `margin ${Math.round((todayNetProfit / todayGross) * 100)}%`
-                : 'margin 0%'}
-            </span>
+          <div>
+            <div className="flex items-baseline justify-between">
+              <span
+                className={`text-2xl font-bold tabular-nums tracking-tight ${
+                  todayNetProfit >= 0 ? 'text-emerald-700' : 'text-[#D7262E]'
+                }`}
+              >
+                {formatRupiah(todayGross > 0 ? todayNetProfit : 0)}
+              </span>
+              <span className="text-xs text-[#64748B] font-medium tabular-nums">
+                {todayGross > 0
+                  ? `margin ${Math.round((todayNetProfit / todayGross) * 100)}%`
+                  : 'margin 0%'}
+              </span>
+            </div>
+            <p className="text-[11px] text-[#64748B] mt-0.5 font-medium">
+              {todayGross > 0 ? 'Setelah HPP bahan & beban harian' : 'Belum ada penjualan hari ini'}
+            </p>
           </div>
         </div>
 
         {/* Progres Titik Impas (BEP) */}
-        <div className="h-26 bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-4 flex flex-col justify-between hover:border-[#1B2A5C]/30 transition-colors">
+        <div className="min-h-26 bg-white rounded-2xl border border-[#E6E4DD] shadow-xs p-4 flex flex-col justify-between hover:border-[#1B2A5C]/30 transition-colors">
           <div className="text-[11px] font-bold uppercase tracking-wider text-[#64748B]">
-            Progres Titik Impas
+            Progres Titik Impas (BEP)
           </div>
           <div>
             <div className="flex items-baseline justify-between mb-1.5">
@@ -272,7 +342,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {bepProgressPct}%
               </span>
               <span className="text-xs text-[#64748B] tabular-nums font-medium">
-                target {bepTargetCupsPerDay} cup
+                {todayCups} / {bepTargetCupsPerDay} cup
               </span>
             </div>
             {/* Batang tipis progres */}
@@ -291,10 +361,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="flex items-center justify-between mb-3">
           <div>
             <h2 className="text-sm font-semibold text-[#1B2A5C]">
-              Tren Omzet dan Laba (14 Hari Terakhir)
+              Tren Omzet & Laba Penjualan (7 Hari Terakhir)
             </h2>
             <p className="text-xs text-[#5B6478]">
-              Garis navy menunjukkan omzet kotor, garis hijau menunjukkan laba bersih.
+              Data nyata dari riwayat transaksi kasir POS (Garis navy: omzet kotor, garis hijau: laba bersih).
             </p>
           </div>
         </div>
@@ -402,7 +472,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-[#1B2A5C]">
-                Menu Terlaris Hari Ini
+                {isShowingAllTimeBestSellers ? 'Menu Terlaris (Akumulasi)' : 'Menu Terlaris Hari Ini'}
               </h3>
               <span className="text-xs text-[#5B6478]">Berdasarkan porsi</span>
             </div>

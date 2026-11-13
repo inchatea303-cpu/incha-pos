@@ -295,26 +295,6 @@ export const UnifiedLoginView: React.FC<UnifiedLoginViewProps> = ({
                 <Delete className="w-5 h-5" />
               </button>
             </div>
-
-            {/* Quick Demo PIN Badge */}
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setCashierPin('1234');
-                  verifyCashierPin('1234');
-                }}
-                className="w-full py-2 px-3 rounded-lg bg-[#FAF8F4] border border-[#E8E5DF] text-[11px] text-[#64748B] hover:text-[#1B2A5C] hover:border-[#1B2A5C]/30 flex items-center justify-between transition-colors"
-              >
-                <span className="flex items-center gap-1.5">
-                  <KeyRound className="w-3.5 h-3.5 text-[#1B2A5C]" />
-                  <span>PIN Kasir Toko:</span>
-                </span>
-                <span className="font-mono font-bold text-[#1B2A5C] text-xs bg-white px-2 py-0.5 rounded border border-[#E2DFD7]">
-                  1234
-                </span>
-              </button>
-            </div>
           </div>
         )}
 

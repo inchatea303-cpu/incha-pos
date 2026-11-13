@@ -19,7 +19,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
-import { formatRupiah, formatDateWIB } from '../../utils/calculations';
+import { formatRupiah, formatDateWIB, isSameDayWIB } from '../../utils/calculations';
 import { SalesTransaction, SalesChannel, PaymentMethod } from '../../types';
 
 interface FinanceViewProps {
@@ -61,14 +61,12 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ onOpenCashier }) => {
   // Filter Transaksi Berdasarkan Tanggal, Channel, dan Metode Bayar
   const filteredTransactions = useMemo(() => {
     const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
 
     return transactions.filter((tx) => {
       if (tx.isVoided) return false;
 
-      // Filter Tanggal
-      const txDate = tx.timestamp.slice(0, 10);
-      if (dateRange === 'today' && txDate !== todayStr) return false;
+      // Filter Tanggal (Akurat WIB)
+      if (dateRange === 'today' && !isSameDayWIB(tx.timestamp, now)) return false;
       if (dateRange === '7days') {
         const diffDays =
           (now.getTime() - new Date(tx.timestamp).getTime()) / (1000 * 3600 * 24);

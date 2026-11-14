@@ -174,8 +174,34 @@ export const CashierMain: React.FC = () => {
   const cashChange = paymentMethod === 'cash' ? Math.max(0, cashNum - totalNet) : 0;
   const isCashSufficient = paymentMethod === 'qris' || cashNum >= totalNet;
 
+  // Helper harga jual per channel (Direct vs Online Ojol komisi 20%)
+  const getProductPriceForChannel = (product: Product, ch: SalesChannel): number => {
+    if (ch === 'direct') return product.sellPrice;
+    // Markup 20% komisi: sellPrice / 0.8, dibulatkan ke kelipatan 500 terdekat
+    const raw = product.sellPrice / 0.8;
+    return Math.ceil(raw / 500) * 500;
+  };
+
+  const handleChannelChange = (newChannel: SalesChannel) => {
+    setChannel(newChannel);
+    // Otomatis konversi harga item di cart ke tarif channel yang dipilih
+    setCart((prev) =>
+      prev.map((it) => {
+        const prod = products.find((p) => p.id === it.productId);
+        if (!prod) return it;
+        const newUnitPrice = getProductPriceForChannel(prod, newChannel);
+        return {
+          ...it,
+          unitPrice: newUnitPrice,
+          subtotal: it.quantity * newUnitPrice - it.discountAmount,
+        };
+      })
+    );
+  };
+
   // Add Item to Cart
   const handleAddToCart = (product: Product) => {
+    const itemPrice = getProductPriceForChannel(product, channel);
     setCart((prev) => {
       const existing = prev.find((it) => it.productId === product.id);
       if (existing) {
@@ -195,9 +221,9 @@ export const CashierMain: React.FC = () => {
           productId: product.id,
           productName: product.name,
           quantity: 1,
-          unitPrice: product.sellPrice,
+          unitPrice: itemPrice,
           discountAmount: 0,
-          subtotal: product.sellPrice,
+          subtotal: itemPrice,
           hppPerUnit: 0,
           maxDiscountPct: product.maxDiscountPct,
         },
@@ -594,8 +620,15 @@ export const CashierMain: React.FC = () => {
                       <div className="font-bold text-xs text-[#1F2937] line-clamp-2 leading-tight">
                         {prod.name}
                       </div>
-                      <div className="font-extrabold text-sm text-[#1B2A5C] mt-1 tabular-nums">
-                        {formatRupiah(prod.sellPrice)}
+                      <div className="flex items-baseline justify-between mt-1">
+                        <div className="font-extrabold text-sm text-[#1B2A5C] tabular-nums">
+                          {formatRupiah(getProductPriceForChannel(prod, channel))}
+                        </div>
+                        {channel !== 'direct' && (
+                          <span className="text-[9px] font-bold text-amber-700 bg-amber-50 px-1 py-0.5 rounded border border-amber-200 uppercase">
+                            Ojol
+                          </span>
+                        )}
                       </div>
                     </div>
                   </button>
@@ -668,7 +701,7 @@ export const CashierMain: React.FC = () => {
                 <button
                   key={ch.id}
                   type="button"
-                  onClick={() => setChannel(ch.id as SalesChannel)}
+                  onClick={() => handleChannelChange(ch.id as SalesChannel)}
                   className={`py-2 px-1 rounded-xl font-bold text-center border transition-all ${
                     channel === ch.id
                       ? 'bg-[#1B2A5C] text-white border-[#1B2A5C]'

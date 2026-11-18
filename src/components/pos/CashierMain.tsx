@@ -10,20 +10,8 @@ import {
   WifiOff,
   RefreshCw,
   Search,
-  CheckCircle,
-  AlertTriangle,
   History,
-  RotateCcw,
-  Percent,
-  Check,
-  CreditCard,
-  Banknote,
   Bluetooth,
-  Package,
-  Layers,
-  ArrowRight,
-  ShieldCheck,
-  Store,
   Settings,
   Tag,
   Sparkles,
@@ -31,6 +19,10 @@ import {
   Volume2,
   VolumeX,
   QrCode,
+  CreditCard,
+  Banknote,
+  Lock,
+  CloudOff,
 } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
 import {
@@ -60,15 +52,14 @@ interface CartItem extends SalesItem {
 export const CashierMain: React.FC = () => {
   const {
     products,
-    ingredients,
-    currentEmployee,
-    role,
     isOnline,
     pendingOfflineCount,
+    cloudState,
+    authenticatedOwner,
     transactions,
     recordSale,
-    voidTransaction,
     syncPendingTransactions,
+    addAuditLog,
   } = useStore();
 
   // POS State
@@ -84,10 +75,12 @@ export const CashierMain: React.FC = () => {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [completedTx, setCompletedTx] = useState<SalesTransaction | null>(null);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
+  const [isReceiptReprint, setIsReceiptReprint] = useState(false);
 
-  // Void modal state
-  const [voidTxTarget, setVoidTxTarget] = useState<SalesTransaction | null>(null);
-  const [voidReason, setVoidReason] = useState<string>('');
+  // Modal Password Owner untuk Buka Laci Manual di Pengaturan Printer
+  const [isDrawerAuthOpen, setIsDrawerAuthOpen] = useState(false);
+  const [drawerOwnerPassword, setDrawerOwnerPassword] = useState('');
+  const [drawerAuthError, setDrawerAuthError] = useState<string | null>(null);
 
   // Bluetooth State (Dual Printer: Kasir & Stiker Cup EPPOS)
   const [btStatus, setBtStatus] = useState<string>(
@@ -310,37 +303,13 @@ export const CashierMain: React.FC = () => {
       cashChange: paymentMethod === 'cash' ? cashChange : 0,
     });
 
-    // Otomatis kirim perintah buka laci kas jika bayar tunai
-    if (paymentMethod === 'cash' && bluetoothPrinter.receiptConnected) {
-      bluetoothPrinter.openCashDrawer();
-    }
-
-    // Auto-Print: Struk Kasir + Stiker Cup EPPOS sekaligus (1 Tombol Otomatis Keluar Keduanya)
-    const hasReceipt = bluetoothPrinter.receiptConnected || !!localStorage.getItem('incha_native_bt_receipt_address');
-    const hasLabel = bluetoothPrinter.labelConnected || !!localStorage.getItem('incha_native_bt_label_address');
-    if (hasReceipt || hasLabel) {
-      bluetoothPrinter.printDual(saleRecord, {
-        receipt: hasReceipt,
-        label: hasLabel,
-      });
-    }
-
-    // Reset Cart
+    // Reset Cart & tampilkan ReceiptModal:
+    // Laci kasir, struk kasir, dan stiker cup EPPOS baru keluar SAAT tombol cetak dipencet (tidak otomatis terbuka sebelumnya)
     setCart([]);
     setCashInput('');
+    setIsReceiptReprint(false);
     setCompletedTx(saleRecord);
     setIsReceiptOpen(true);
-  };
-
-  // Void Handler
-  const handleConfirmVoid = () => {
-    if (!voidTxTarget || !voidReason.trim()) {
-      alert('Alasan pembatalan transaksi wajib diisi!');
-      return;
-    }
-    voidTransaction(voidTxTarget.id, voidReason.trim());
-    setVoidTxTarget(null);
-    setVoidReason('');
   };
 
   // Bluetooth Actions (Dual Printer)
@@ -381,6 +350,26 @@ export const CashierMain: React.FC = () => {
   };
 
   const handleDrawerKick = async () => {
+    if (authenticatedOwner) {
+      const res = await bluetoothPrinter.openCashDrawer();
+      addAuditLog('BUKA_LACI_MANUAL', `Pemilik ${authenticatedOwner.name} membuka laci kasir manual dari Pengaturan Printer.`);
+      alert(res.message);
+      return;
+    }
+    setDrawerOwnerPassword('');
+    setDrawerAuthError(null);
+    setIsDrawerAuthOpen(true);
+  };
+
+  const handleConfirmDrawerAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (drawerOwnerPassword !== 'Jayden134?') {
+      setDrawerAuthError('Password Pemilik salah. Laci tetap terkunci.');
+      return;
+    }
+    setIsDrawerAuthOpen(false);
+    setDrawerOwnerPassword('');
+    addAuditLog('BUKA_LACI_MANUAL', 'Laci kasir dibuka manual via otorisasi Password Pemilik di tab Printer.');
     const res = await bluetoothPrinter.openCashDrawer();
     alert(res.message);
   };
@@ -448,15 +437,30 @@ export const CashierMain: React.FC = () => {
 
         {/* Sync Status Badge */}
         <div className="flex items-center gap-2">
-          {isOnline ? (
-            <div className="flex items-center gap-1 text-emerald-300 font-semibold text-[11px]">
-              <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Online</span>
-            </div>
-          ) : (
+          {!isOnline ? (
             <div className="flex items-center gap-1 text-amber-300 font-semibold text-[11px]">
               <WifiOff className="w-3.5 h-3.5 text-amber-400" />
               <span>Offline (Lokal)</span>
+            </div>
+          ) : cloudState.status === 'connected' ? (
+            <div className="flex items-center gap-1 text-emerald-300 font-semibold text-[11px]">
+              <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Cloud Tersinkron</span>
+            </div>
+          ) : cloudState.status === 'unconfigured' ? (
+            <div className="flex items-center gap-1 text-amber-300 font-semibold text-[11px]">
+              <CloudOff className="w-3.5 h-3.5 text-amber-400" />
+              <span>Cloud Belum Terhubung</span>
+            </div>
+          ) : cloudState.status === 'error' ? (
+            <div className="flex items-center gap-1 text-rose-300 font-semibold text-[11px]">
+              <CloudOff className="w-3.5 h-3.5 text-rose-400" />
+              <span>Gagal Sync Cloud</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 text-gray-200 font-semibold text-[11px]">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-gray-300" />
+              <span>Cek Cloud...</span>
             </div>
           )}
 
@@ -464,10 +468,10 @@ export const CashierMain: React.FC = () => {
             <button
               onClick={() => syncPendingTransactions()}
               className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-400 text-amber-950 font-bold text-[10px] animate-pulse"
-              title="Sinkronkan antrean transaksi ke server"
+              title="Kirim transaksi yang tertunda ke server Cloud Vercel"
             >
               <RefreshCw className="w-3 h-3" />
-              <span>{pendingOfflineCount} Antrean</span>
+              <span>{pendingOfflineCount} Belum Sync</span>
             </button>
           )}
         </div>
@@ -824,15 +828,15 @@ export const CashierMain: React.FC = () => {
         </div>
       )}
 
-      {/* 4. TAB: RIWAYAT TRANSAKSI & VOID */}
+      {/* 4. TAB: RIWAYAT TRANSAKSI (TANPA VOID) */}
       {activePosTab === 'history' && (
         <div className="p-4 flex-1 overflow-y-auto space-y-3 bg-[#FAF8F4]">
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-sm text-[#1B2A5C] flex items-center gap-1.5">
               <History className="w-4 h-4" />
-              <span>Transaksi Kasir Hari Ini ({transactions.length})</span>
+              <span>Transaksi Kasir ({transactions.length})</span>
             </h3>
-            <span className="text-[11px] text-[#6B7280]">Bisa cetak ulang & void</span>
+            <span className="text-[11px] text-[#6B7280]">Hanya bisa cetak ulang (Anti-Void aktif)</span>
           </div>
 
           {transactions.length === 0 ? (
@@ -844,19 +848,12 @@ export const CashierMain: React.FC = () => {
               {transactions.map((tx) => (
                 <div
                   key={tx.id}
-                  className={`p-3.5 rounded-2xl border bg-white shadow-sm space-y-2 ${
-                    tx.isVoided ? 'opacity-60 border-red-200 bg-red-50/30' : 'border-[#E2DED6]'
-                  }`}
+                  className="p-3.5 rounded-2xl border border-[#E2DED6] bg-white shadow-sm space-y-2"
                 >
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="font-bold text-xs text-[#1F2937] flex items-center gap-1.5">
                         <span>{tx.invoiceNumber}</span>
-                        {tx.isVoided && (
-                          <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-[#FCE8E9] text-[#D7262E] border border-[#D7262E]/30">
-                            VOID
-                          </span>
-                        )}
                         <span
                           className={`px-1.5 py-0.2 rounded text-[9px] font-bold uppercase ${
                             tx.syncStatus === 'terkirim'
@@ -864,7 +861,7 @@ export const CashierMain: React.FC = () => {
                               : 'bg-amber-100 text-amber-800'
                           }`}
                         >
-                          {tx.syncStatus}
+                          {tx.syncStatus === 'terkirim' ? 'Terkirim Cloud' : 'Belum Masuk Cloud'}
                         </span>
                       </div>
                       <div className="text-[10px] text-[#6B7280] mt-0.5">
@@ -894,37 +891,21 @@ export const CashierMain: React.FC = () => {
                     ))}
                   </div>
 
-                  {tx.isVoided && tx.voidReason && (
-                    <div className="text-[10px] text-[#D7262E] italic">
-                      Alasan Void: "{tx.voidReason}" (Oleh: {tx.voidedBy})
-                    </div>
-                  )}
-
-                  {/* Action Buttons: Cetak Ulang & Void */}
-                  {!tx.isVoided && (
-                    <div className="flex items-center justify-end gap-2 pt-1 border-t border-gray-100">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCompletedTx(tx);
-                          setIsReceiptOpen(true);
-                        }}
-                        className="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-xs font-semibold text-gray-700 flex items-center gap-1"
-                      >
-                        <Printer className="w-3.5 h-3.5" />
-                        <span>Cetak Ulang</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setVoidTxTarget(tx)}
-                        className="px-3 py-1.5 rounded-lg bg-[#FCE8E9] hover:bg-red-200 text-xs font-semibold text-[#D7262E] flex items-center gap-1"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        <span>Void Transaksi</span>
-                      </button>
-                    </div>
-                  )}
+                  {/* Action Button: Cetak Ulang Saja (Tanpa Void & Tanpa Buka Laci) */}
+                  <div className="flex items-center justify-end gap-2 pt-1 border-t border-gray-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsReceiptReprint(true);
+                        setCompletedTx(tx);
+                        setIsReceiptOpen(true);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-xs font-semibold text-gray-700 flex items-center gap-1"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>Cetak Ulang</span>
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1091,7 +1072,7 @@ export const CashierMain: React.FC = () => {
                     onClick={handleDrawerKick}
                     className="h-10 rounded-lg bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 font-bold text-xs flex items-center justify-center gap-1"
                   >
-                    <Coins className="w-3.5 h-3.5" />
+                    <Lock className="w-3.5 h-3.5 text-amber-600" />
                     <span>Buka Laci</span>
                   </button>
                 </div>
@@ -1150,7 +1131,7 @@ export const CashierMain: React.FC = () => {
               </div>
 
               <div className="text-[11px] text-[#6B7280] leading-relaxed pt-2 border-t border-[#E2DED6]">
-                💡 <strong>Cara Kerja Cetak Sekaligus:</strong> Saat transaksi diselesaikan di kasir, aplikasi otomatis mengirimkan 1 lembar struk ke Printer Kasir dan mencetak stiker cup ke Printer EPPOS sesuai jumlah cup minuman yang dipesan.
+                💡 <strong>Cara Kerja Cetak &amp; Laci Kasir:</strong> Setelah transaksi dikonfirmasi, aplikasi tidak langsung membuka laci. Struk kasir, stiker cup EPPOS, dan laci kasir HANYA akan keluar bersamaan tepat pada saat kasir memencet tombol <strong>&quot;Cetak Struk + Stiker &amp; Buka Laci&quot;</strong>.
               </div>
 
               {/* KARTU 3: NOTIFIKASI SUARA QRIS (AUTOGOPAY GATEWAY) */}
@@ -1250,63 +1231,74 @@ export const CashierMain: React.FC = () => {
         <ReceiptModal
           transaction={completedTx}
           isOpen={isReceiptOpen}
+          isReprint={isReceiptReprint}
           onClose={() => {
             setIsReceiptOpen(false);
             setCompletedTx(null);
+            setIsReceiptReprint(false);
           }}
         />
       )}
 
-      {/* MODAL: INPUT ALASAN VOID TRANSAKSI */}
-      {voidTxTarget && (
+      {/* MODAL: OTORISASI PEMILIK UNTUK BUKA LACI MANUAL */}
+      {isDrawerAuthOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-[#FAF8F4] w-full max-w-sm rounded-2xl shadow-2xl border border-[#E2DED6] overflow-hidden p-5 space-y-4">
-            <div className="flex items-center gap-2 text-[#D7262E]">
-              <AlertTriangle className="w-5 h-5 shrink-0" />
+          <form
+            onSubmit={handleConfirmDrawerAuth}
+            className="bg-[#FAF8F4] w-full max-w-sm rounded-2xl shadow-2xl border border-[#E2DED6] overflow-hidden p-5 space-y-4"
+          >
+            <div className="flex items-center gap-2 text-[#1B2A5C]">
+              <Lock className="w-5 h-5 text-amber-600 shrink-0" />
               <div>
-                <h3 className="font-bold text-sm text-[#1F2937]">Batalkan Transaksi (VOID)?</h3>
-                <p className="text-[11px] text-[#6B7280]">{voidTxTarget.invoiceNumber}</p>
+                <h3 className="font-bold text-sm text-[#1F2937]">Otorisasi Buka Laci Manual</h3>
+                <p className="text-[11px] text-[#6B7280]">Hanya Pemilik yang boleh membuka laci tanpa transaksi</p>
               </div>
             </div>
 
-            <p className="text-xs text-[#1F2937]">
-              Membatalkan transaksi akan <strong>mengembalikan seluruh stok bahan baku</strong> ke gudang secara otomatis dan mencatat audit log.
-            </p>
+            {drawerAuthError && (
+              <div className="p-2.5 rounded-lg bg-[#FCE8E9] border border-[#D7262E]/30 text-[11px] font-semibold text-[#D7262E]">
+                {drawerAuthError}
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-semibold text-[#1F2937] mb-1">
-                Alasan Pembatalan (Wajib diisi):
+                Password Pemilik:
               </label>
-              <textarea
-                rows={3}
+              <input
+                type="password"
+                autoFocus
                 required
-                placeholder="Contoh: Pelanggan salah pilih varian, atau pesanan dibatalkan..."
-                value={voidReason}
-                onChange={(e) => setVoidReason(e.target.value)}
+                placeholder="Masukkan password pemilik..."
+                value={drawerOwnerPassword}
+                onChange={(e) => {
+                  setDrawerOwnerPassword(e.target.value);
+                  setDrawerAuthError(null);
+                }}
                 className="w-full p-2.5 text-xs bg-white border border-[#E2DED6] rounded-xl focus:outline-none focus:border-[#1B2A5C]"
               />
             </div>
 
-            <div className="flex gap-2 pt-2">
+            <div className="flex gap-2 pt-1">
               <button
                 type="button"
                 onClick={() => {
-                  setVoidTxTarget(null);
-                  setVoidReason('');
+                  setIsDrawerAuthOpen(false);
+                  setDrawerOwnerPassword('');
+                  setDrawerAuthError(null);
                 }}
                 className="flex-1 py-2.5 text-xs font-semibold rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700"
               >
                 Batal
               </button>
               <button
-                type="button"
-                onClick={handleConfirmVoid}
-                className="flex-1 py-2.5 text-xs font-bold rounded-xl bg-[#D7262E] hover:bg-red-700 text-white shadow"
+                type="submit"
+                className="flex-1 py-2.5 text-xs font-bold rounded-xl bg-[#1B2A5C] hover:bg-[#243775] text-white shadow"
               >
-                Konfirmasi VOID
+                Buka Laci
               </button>
             </div>
-          </div>
+          </form>
         </div>
       )}
     </div>

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'incha-pos-v4';
+const CACHE_NAME = 'incha-pos-v5';
 const ASSETS_TO_CACHE = [
   '/manifest.json',
   '/incha-emblem.png',
@@ -30,6 +30,11 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
+
+  // JANGAN PERNAH cache request API atau request ke domain luar!
+  if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) {
+    return;
+  }
 
   // 1. Permintaan Dokumen HTML / Navigasi SPA: SELALU JARINGAN DULU (Network-First)
   // Ini mencegah layar putih akibat index.html lawas merujuk ke chunk JS yang sudah berganti di Vercel

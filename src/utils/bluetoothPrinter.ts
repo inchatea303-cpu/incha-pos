@@ -495,28 +495,39 @@ export class BluetoothPrinterService {
     };
   }
 
-  // Cetak Keduanya Sekaligus (1 Tombol Selesai Transaksi -> Struk + Stiker Cup)
+  // Cetak Keduanya Sekaligus (1 Tombol Cetak -> Struk + Laci Kas + Stiker Cup)
   async printDual(
     transaction: SalesTransaction,
-    options: { receipt?: boolean; label?: boolean } = { receipt: true, label: true }
+    options: { receipt?: boolean; label?: boolean; openDrawerIfCash?: boolean } = {
+      receipt: true,
+      label: true,
+      openDrawerIfCash: true,
+    }
   ): Promise<{ receiptSuccess: boolean; labelSuccess: boolean; message: string }> {
     let receiptSuccess = false;
     let labelSuccess = false;
     const messages: string[] = [];
+    const shouldOpenDrawer = options.openDrawerIfCash ?? true;
 
-    // 1. Cetak Struk Kasir
+    // 1. Cetak Struk Kasir (+ buka laci kasir jika bayar tunai & bukan cetak ulang)
     if (options.receipt !== false) {
-      const resReceipt = await this.printReceipt(transaction, true);
+      const resReceipt = await this.printReceipt(transaction, shouldOpenDrawer);
       receiptSuccess = resReceipt.success;
       if (resReceipt.success) {
-        messages.push('Struk kasir tercetak');
+        messages.push(
+          shouldOpenDrawer && transaction.paymentMethod === 'cash'
+            ? 'Struk tercetak & laci terbuka'
+            : 'Struk kasir tercetak'
+        );
       } else if (resReceipt.error) {
         messages.push(`Struk: ${resReceipt.error}`);
       }
     }
 
-    // Beri jeda 450ms antar printer agar stack Bluetooth beralih dengan stabil
-    await new Promise((r) => setTimeout(r, 450));
+    // Beri jeda 500ms antar printer agar stack Bluetooth beralih dengan stabil
+    if (options.receipt !== false && options.label !== false) {
+      await new Promise((r) => setTimeout(r, 500));
+    }
 
     // 2. Cetak Stiker Cup (EPPOS)
     if (options.label !== false) {

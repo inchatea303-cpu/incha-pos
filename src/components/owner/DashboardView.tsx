@@ -37,8 +37,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     transactions,
     ingredients,
     products,
-    packaging,
     businessParams,
+    cloudState,
+    pendingOfflineCount,
     resetTransactions,
     syncCloudData,
   } = useStore();
@@ -213,14 +214,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* 1. Header Halaman */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-2xl font-bold text-[#1B2A5C] tracking-tight">
               Dashboard
             </h1>
-            <span className="text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
-              Live Cloud Outlet
-            </span>
+            {cloudState.status === 'connected' ? (
+              <span className="text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                Cloud Tersinkron{cloudState.provider ? ` (${cloudState.provider})` : ''}
+              </span>
+            ) : cloudState.status === 'unconfigured' ? (
+              <span className="text-[10px] font-bold uppercase bg-amber-100 text-amber-800 border border-amber-300 px-2.5 py-0.5 rounded-full flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
+                Database Cloud Belum Terpasang
+              </span>
+            ) : cloudState.status === 'error' ? (
+              <span className="text-[10px] font-bold uppercase bg-rose-100 text-rose-800 border border-rose-300 px-2.5 py-0.5 rounded-full flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-600" />
+                Gagal Sync Cloud
+              </span>
+            ) : (
+              <span className="text-[10px] font-bold uppercase bg-gray-100 text-gray-700 border border-gray-300 px-2.5 py-0.5 rounded-full flex items-center gap-1.5">
+                Cek Cloud...
+              </span>
+            )}
           </div>
           <p className="text-xs text-[#64748B] mt-1 font-medium">{dateText}</p>
         </div>
@@ -276,6 +293,44 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Peringatan Jujur Jika Database Cloud Permanen Belum Terhubung di Vercel */}
+      {cloudState.status === 'unconfigured' && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 text-xs text-amber-950 space-y-2 shadow-xs">
+          <div className="flex items-center gap-2 font-bold text-sm text-amber-900">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+            <span>Hubungkan Database Cloud Permanen di Vercel (Gratis, 2 Menit)</span>
+          </div>
+          <p className="leading-relaxed">
+            Agar setiap penjualan dari <strong>Tablet Kasir</strong> langsung masuk real-time ke Website Vercel Kak Yena tanpa batas harian:
+          </p>
+          <ol className="list-decimal pl-5 space-y-1 font-medium">
+            <li>Buka Dashboard <strong>Vercel.com</strong> &rarr; pilih project <strong>incha-pos</strong>.</li>
+            <li>Klik tab <strong>Storage</strong> &rarr; klik <strong>Create Database</strong> &rarr; pilih <strong>Upstash (Redis)</strong>.</li>
+            <li>Pilih plan <strong>Free ($0)</strong> region Singapore &rarr; klik <strong>Create</strong> &amp; hubungkan ke <strong>incha-pos</strong>.</li>
+            <li>Klik tab <strong>Deployments</strong> &rarr; klik titik tiga pada deploy terbaru &rarr; pilih <strong>Redeploy</strong>.</li>
+          </ol>
+        </div>
+      )}
+
+      {cloudState.status === 'error' && (
+        <div className="bg-rose-50 border border-rose-300 rounded-2xl p-3.5 text-xs text-rose-900 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-[#D7262E] shrink-0" />
+            <span>
+              <strong>Gagal Sinkron Cloud:</strong> {cloudState.error || 'Periksa koneksi internet.'}
+              {pendingOfflineCount > 0 && ` (${pendingOfflineCount} transaksi menunggu upload)`}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => syncCloudData()}
+            className="px-3 py-1.5 rounded-lg bg-[#D7262E] text-white font-bold text-[11px] shrink-0"
+          >
+            Coba Lagi
+          </button>
+        </div>
+      )}
 
       {/* 2. Empat Kartu Angka Utama (Tinggi 96px) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

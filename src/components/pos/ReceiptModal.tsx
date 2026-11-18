@@ -1,11 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Printer,
   X,
   CheckCircle,
   Copy,
   Check,
-  Coins,
   Tag,
   Sparkles,
 } from 'lucide-react';
@@ -14,26 +13,38 @@ import {
   bluetoothPrinter,
   generateReceiptText,
   printViaRawBT,
-  isNativeAndroidApp,
   extractQueueNumber,
 } from '../../utils/bluetoothPrinter';
-import { formatRupiah, formatDateWIB } from '../../utils/calculations';
+import { formatRupiah } from '../../utils/calculations';
+
+// Anti-korupsi: pastikan 1 transaksi tunai hanya bisa membuka laci kasir maksimal 1x
+const openedDrawerTxIds = new Set<string>();
 
 interface ReceiptModalProps {
   transaction: SalesTransaction;
   isOpen: boolean;
   onClose: () => void;
+  isReprint?: boolean;
 }
 
 export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   transaction,
   isOpen,
   onClose,
+  isReprint = false,
 }) => {
   const [activePreviewTab, setActivePreviewTab] = useState<'receipt' | 'label'>('receipt');
   const [printStatus, setPrintStatus] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
+  const [hasOpenedDrawer, setHasOpenedDrawer] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (isOpen && transaction?.id) {
+      setHasOpenedDrawer(openedDrawerTxIds.has(transaction.id));
+      setPrintStatus(null);
+    }
+  }, [isOpen, transaction?.id]);
 
   if (!isOpen) return null;
 
@@ -46,16 +57,41 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   const minutes = String(dateObj.getMinutes()).padStart(2, '0');
   const timeStr = `${hours}:${minutes} WIB`;
 
-  // 1. Cetak Keduanya Sekaligus (1 Tombol Struk + Stiker Cup)
+  const canOpenDrawerNow =
+    !isReprint && transaction.paymentMethod === 'cash' && !hasOpenedDrawer;
+
+  // 1. Cetak Keduanya Sekaligus (Struk + Laci Kasir [jika tunai baru] + Stiker Cup EPPOS)
   const handlePrintBoth = async () => {
     setIsPrinting(true);
-    setPrintStatus('Mengirim ke Printer Struk & Printer Stiker EPPOS...');
+    const shouldOpenDrawer =
+      !isReprint &&
+      transaction.paymentMethod === 'cash' &&
+      !openedDrawerTxIds.has(transaction.id);
+
+    setPrintStatus(
+      shouldOpenDrawer
+        ? 'Mencetak Struk, Membuka Laci, & Mencetak Stiker EPPOS...'
+        : 'Mengirim ke Printer Struk & Printer Stiker EPPOS...'
+    );
+
     try {
-      const res = await bluetoothPrinter.printDual(transaction, { receipt: true, label: true });
+      const res = await bluetoothPrinter.printDual(transaction, {
+        receipt: true,
+        label: true,
+        openDrawerIfCash: shouldOpenDrawer,
+      });
+
+      if (shouldOpenDrawer && res.receiptSuccess) {
+        openedDrawerTxIds.add(transaction.id);
+        setHasOpenedDrawer(true);
+      }
+
       if (res.receiptSuccess || res.labelSuccess) {
         setPrintStatus(`✅ Berhasil: ${res.message}`);
       } else {
-        setPrintStatus('⚠️ Periksa koneksi Bluetooth: Pastikan Printer Kasir & EPPOS sudah tersambung.');
+        setPrintStatus(
+          `⚠️ Gagal cetak${res.message ? `: ${res.message}` : '. Pastikan Printer Kasir & EPPOS sudah tersambung.'}`
+        );
       }
     } catch (e: any) {
       setPrintStatus(`Gagal cetak: ${e.message}`);
@@ -64,14 +100,29 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
     }
   };
 
-  // 2. Cetak Struk Saja
+  // 2. Cetak Struk Saja (+ Buka Laci jika Tunai baru & bukan cetak ulang)
   const handlePrintReceiptOnly = async () => {
     setIsPrinting(true);
-    setPrintStatus('Mencetak struk kasir...');
+    const shouldOpenDrawer =
+      !isReprint &&
+      transaction.paymentMethod === 'cash' &&
+      !openedDrawerTxIds.has(transaction.id);
+
+    setPrintStatus(
+      shouldOpenDrawer ? 'Mencetak struk & membuka laci kasir...' : 'Mencetak struk kasir...'
+    );
     try {
-      const res = await bluetoothPrinter.printReceipt(transaction, true);
+      const res = await bluetoothPrinter.printReceipt(transaction, shouldOpenDrawer);
       if (res.success) {
-        setPrintStatus('✅ Struk kasir berhasil dicetak!');
+        if (shouldOpenDrawer) {
+          openedDrawerTxIds.add(transaction.id);
+          setHasOpenedDrawer(true);
+        }
+        setPrintStatus(
+          shouldOpenDrawer
+            ? '✅ Struk kasir tercetak & laci terbuka!'
+            : '✅ Struk kasir berhasil dicetak!'
+        );
       } else {
         // Fallback coba RawBT jika native socket belum pairing
         printViaRawBT(transaction);
@@ -102,11 +153,6 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
     }
   };
 
-  const handleOpenDrawer = async () => {
-    const res = await bluetoothPrinter.openCashDrawer();
-    setPrintStatus(res.message);
-  };
-
   const handleCopyText = () => {
     navigator.clipboard.writeText(receiptText);
     setCopied(true);
@@ -121,9 +167,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           <div className="flex items-center gap-2">
             <CheckCircle className="w-5 h-5 text-emerald-400" />
             <div>
-              <h3 className="font-bold text-sm text-white">Transaksi Berhasil!</h3>
+              <h3 className="font-bold text-sm text-white">
+                {isReprint ? 'Cetak Ulang Nota (Laci Terkunci)' : 'Transaksi Berhasil!'}
+              </h3>
               <p className="text-[11px] text-gray-200">
                 Antrian <span className="font-extrabold text-amber-300">{queueNo}</span> · {totalCups} Cup
+                {canOpenDrawerNow && ' · Tekan Cetak untuk Buka Laci'}
               </p>
             </div>
           </div>
@@ -323,7 +372,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
         {/* Action Buttons */}
         <div className="p-3 bg-white border-t border-[#E2DED6] space-y-2 shrink-0">
-          {/* TOMBOL UTAMA: CETAK KEDUANYA SEKALIGUS */}
+          {/* TOMBOL UTAMA: CETAK STRUK + BUKA LACI + STIKER CUP (BARU KELUAR SAAT DIPENCET) */}
           <button
             type="button"
             onClick={handlePrintBoth}
@@ -331,7 +380,11 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             className="w-full h-12 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg transition-all active:scale-95 disabled:opacity-60"
           >
             <Printer className="w-4 h-4 text-emerald-200" />
-            <span>Cetak Struk + Stiker Cup ({totalCups}x)</span>
+            <span>
+              {canOpenDrawerNow
+                ? `Cetak Struk + Stiker (${totalCups}x) & Buka Laci`
+                : `Cetak${isReprint ? ' Ulang' : ''} Struk + Stiker Cup (${totalCups}x)`}
+            </span>
           </button>
 
           {/* OPSI CETAK TERPISAH */}
@@ -343,7 +396,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               className="h-10 rounded-lg bg-[#1B2A5C] hover:bg-[#243775] text-white font-bold text-[11px] flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95 disabled:opacity-60"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>Struk Saja</span>
+              <span>{canOpenDrawerNow ? 'Struk & Laci' : 'Struk Saja'}</span>
             </button>
 
             <button
@@ -357,20 +410,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             </button>
           </div>
 
-          {/* Buka Laci, Salin Teks, Selesai */}
+          {/* Salin Teks & Selesai (Tanpa Tombol Laci Bebas) */}
           <div className="flex gap-2 pt-1">
             <button
               type="button"
-              onClick={handleOpenDrawer}
-              className="flex-1 py-1.5 text-xs font-semibold text-[#1B2A5C] bg-[#FAF8F4] hover:bg-gray-100 border border-[#1B2A5C]/30 rounded-lg flex items-center justify-center gap-1 transition-colors"
-            >
-              <Coins className="w-3.5 h-3.5" />
-              <span>Laci</span>
-            </button>
-            <button
-              type="button"
               onClick={handleCopyText}
-              className="flex-1 py-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center justify-center gap-1 transition-colors"
+              className="flex-1 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center justify-center gap-1 transition-colors"
             >
               {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
               <span>{copied ? 'Tersalin' : 'Salin'}</span>
@@ -378,7 +423,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-1.5 text-xs font-bold text-white bg-gray-800 hover:bg-gray-900 rounded-lg shadow-sm transition-colors"
+              className="flex-1 py-2 text-xs font-bold text-white bg-gray-800 hover:bg-gray-900 rounded-lg shadow-sm transition-colors"
             >
               Selesai
             </button>

@@ -40,13 +40,19 @@ import {
   getAllOfflineTransactions,
   getPendingOfflineTransactions,
   updateTransactionSyncStatus,
-  syncOfflineQueue,
 } from '../utils/offlineQueue';
 import {
   pushTransactionsToCloud,
   fetchTransactionsFromCloud,
   resetCloudTransactions,
 } from '../utils/cloudSync';
+
+export interface CloudState {
+  status: 'checking' | 'connected' | 'unconfigured' | 'error';
+  provider?: string;
+  error?: string;
+  lastSyncedAt?: string;
+}
 
 interface StoreContextType {
   role: UserRole;
@@ -66,6 +72,7 @@ interface StoreContextType {
   activeAlert: string | null;
   isOnline: boolean;
   pendingOfflineCount: number;
+  cloudState: CloudState;
   clearAlert: () => void;
   // Auth & Roles
   authenticatedOwner: OwnerAccount | null;
@@ -252,6 +259,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [transactions, setTransactions] = useState<SalesTransaction[]>(() =>
     safeLoadFromStorage(STORAGE_KEYS.TRANSACTIONS, [])
   );
+  const transactionsRef = React.useRef<SalesTransaction[]>(transactions);
+  transactionsRef.current = transactions;
+
+  const roleRef = React.useRef<UserRole>(role);
+  roleRef.current = role;
+
+  const isSyncingRef = React.useRef<boolean>(false);
 
   const [expenses, setExpenses] = useState<Expense[]>(() => {
     const saved = safeLoadFromStorage<Expense[]>(STORAGE_KEYS.EXPENSES, []);
@@ -265,20 +279,60 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const [activeAlert, setActiveAlert] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
-  const [pendingOfflineCount, setPendingOfflineCount] = useState<number>(0);
+  const [pendingOfflineCount, setPendingOfflineCount] = useState<number>(() =>
+    transactions.filter((t) => !t.isVoided && t.syncStatus !== 'terkirim').length
+  );
+  const [cloudState, setCloudState] = useState<CloudState>({
+    status: 'checking',
+  });
 
-  // Monitor Online/Offline Status
+  const refreshPendingCount = async (currentList?: SalesTransaction[]) => {
+    const list = currentList || transactionsRef.current;
+    const localUnsyncedIds = new Set(
+      list.filter((t) => !t.isVoided && t.syncStatus !== 'terkirim').map((t) => t.id)
+    );
+    try {
+      const idbPending = await getPendingOfflineTransactions();
+      idbPending.forEach((t) => {
+        if (!t.isVoided) localUnsyncedIds.add(t.id);
+      });
+    } catch {}
+    setPendingOfflineCount(localUnsyncedIds.size);
+    return localUnsyncedIds.size;
+  };
+
+  const applyTransactionsState = (nextList: SalesTransaction[]) => {
+    const sorted = [...nextList].sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+    transactionsRef.current = sorted;
+    setTransactions(sorted);
+    try {
+      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(sorted));
+    } catch {}
+    setPendingOfflineCount(
+      sorted.filter((t) => !t.isVoided && t.syncStatus !== 'terkirim').length
+    );
+  };
+
+  // Monitor Online/Offline Status & Live Cloud Sync
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
-      syncPendingTransactions();
+      syncCloudData();
     };
     const handleOffline = () => {
       setIsOnline(false);
     };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        syncCloudData();
+      }
+    };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+    document.addEventListener('visibilitychange', handleVisibility);
 
     // Cross-tab / Multi-window Storage Event Listener
     const handleStorageChange = (e: StorageEvent) => {
@@ -286,97 +340,198 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         try {
           const parsed = JSON.parse(e.newValue);
           if (Array.isArray(parsed)) {
+            transactionsRef.current = parsed;
             setTransactions(parsed);
+            setPendingOfflineCount(
+              parsed.filter((t: SalesTransaction) => !t.isVoided && t.syncStatus !== 'terkirim').length
+            );
           }
         } catch {}
       }
     };
     window.addEventListener('storage', handleStorageChange);
 
-    // Initial check pending offline queue
-    getPendingOfflineTransactions().then((items) => {
-      setPendingOfflineCount(items.length);
-    });
+    // Recovery data dari IndexedDB agar transaksi offline di APK tidak pernah hilang
+    getAllOfflineTransactions()
+      .then((idbItems) => {
+        if (idbItems && idbItems.length > 0) {
+          const map = new Map<string, SalesTransaction>();
+          transactionsRef.current.forEach((t) => {
+            if (t && t.id) map.set(t.id, t);
+          });
+          let recovered = false;
+          idbItems.forEach((t) => {
+            if (t && t.id && !map.has(t.id)) {
+              map.set(t.id, t);
+              recovered = true;
+            }
+          });
+          if (recovered) {
+            applyTransactionsState(Array.from(map.values()));
+          }
+        }
+        return refreshPendingCount();
+      })
+      .finally(() => {
+        syncCloudData();
+      });
 
-    // Sinkronisasi transaksi dari Cloud ke Lokal saat awal buka
-    syncCloudData();
-
-    // Polling background setiap 10 detik agar tablet kasir dan HP pemilik selalu sinkron
+    // Polling terarah:
+    // - Pemilik di website Vercel: tarik live update setiap 15 detik saat tab aktif
+    // - Kasir di tablet: dorong otomatis tiap 15 detik jika ada antrean belum terkirim, atau cek per 60 detik
+    let tickCount = 0;
     const syncInterval = setInterval(() => {
-      if (navigator.onLine) {
+      if (!navigator.onLine) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      tickCount++;
+      const hasPending = transactionsRef.current.some(
+        (t) => !t.isVoided && t.syncStatus !== 'terkirim'
+      );
+      if (roleRef.current === 'pemilik' || hasPending || tickCount % 4 === 0) {
         syncCloudData();
       }
-    }, 10000);
+    }, 15000);
 
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('storage', handleStorageChange);
       clearInterval(syncInterval);
     };
   }, []);
 
   const syncCloudData = async () => {
+    if (isSyncingRef.current) return;
+    isSyncingRef.current = true;
+
     try {
-      const cloudTxs = await fetchTransactionsFromCloud();
-      if (cloudTxs && Array.isArray(cloudTxs)) {
-        setTransactions((prev) => {
-          // Merge by ID: gabungan cerdas (union) agar transaksi kasir lokal TIDAK PERNAH terhapus oleh cloud
-          const txMap = new Map<string, SalesTransaction>();
+      // 1. Kumpulkan transaksi lokal yang belum terkirim + antrean IndexedDB
+      const currentLocal = transactionsRef.current;
+      let unsyncedList = currentLocal.filter((t) => !t.isVoided && t.syncStatus !== 'terkirim');
 
-          // Masukkan transaksi cloud
-          cloudTxs.forEach((t) => {
-            if (t && t.id) txMap.set(t.id, t);
-          });
-
-          // Masukkan transaksi lokal (prioritas mempertahankan status lokal)
-          prev.forEach((t) => {
-            if (t && t.id) {
-              const existing = txMap.get(t.id);
-              if (!existing) {
-                txMap.set(t.id, t);
-              } else {
-                // Jika salah satu void, pertahankan status void
-                if (t.isVoided && !existing.isVoided) {
-                  txMap.set(t.id, t);
-                }
-              }
-            }
-          });
-
-          const merged = Array.from(txMap.values()).sort(
-            (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-          );
-
-          // Jika lokal memiliki transaksi yang belum masuk ke cloud, dorong data gabungan ke cloud
-          const hasMissingInCloud = merged.some((m) => !cloudTxs.some((c) => c.id === m.id));
-          if (hasMissingInCloud) {
-            pushTransactionsToCloud(merged).catch((err) =>
-              console.warn('[CloudSync] Gagal push transaksi gabungan ke cloud:', err)
-            );
+      try {
+        const idbPending = await getPendingOfflineTransactions();
+        const unsyncedMap = new Map<string, SalesTransaction>();
+        unsyncedList.forEach((t) => unsyncedMap.set(t.id, t));
+        idbPending.forEach((t) => {
+          if (!t.isVoided && !unsyncedMap.has(t.id)) {
+            unsyncedMap.set(t.id, t);
           }
-
-          // Cek apakah data berubah sebelum memicu render ulang
-          const isDifferent =
-            merged.length !== prev.length ||
-            merged.some(
-              (m, i) =>
-                m.id !== prev[i]?.id ||
-                m.isVoided !== prev[i]?.isVoided ||
-                m.syncStatus !== prev[i]?.syncStatus
-            );
-
-          if (isDifferent) {
-            try {
-              localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(merged));
-            } catch {}
-            return merged;
-          }
-          return prev;
         });
+        unsyncedList = Array.from(unsyncedMap.values());
+      } catch {}
+
+      // Jika ada transaksi baru / offline yang belum terkirim ke server -> PUSH DULU
+      if (unsyncedList.length > 0) {
+        const pushRes = await pushTransactionsToCloud(unsyncedList);
+        if (pushRes.ok && pushRes.transactions) {
+          for (const t of unsyncedList) {
+            try {
+              await updateTransactionSyncStatus(t.id, 'terkirim');
+            } catch {}
+          }
+
+          const mergedMap = new Map<string, SalesTransaction>();
+          pushRes.transactions.forEach((t) => {
+            if (t && t.id) mergedMap.set(t.id, { ...t, syncStatus: 'terkirim' });
+          });
+
+          applyTransactionsState(Array.from(mergedMap.values()));
+          setCloudState({
+            status: 'connected',
+            provider: pushRes.provider,
+            lastSyncedAt: new Date().toISOString(),
+          });
+          return;
+        }
+
+        setCloudState({
+          status: pushRes.configured ? 'error' : 'unconfigured',
+          error: pushRes.error,
+        });
+        return;
       }
-    } catch (e) {
+
+      // 2. Tarik data terbaru dari Cloud Server Vercel
+      const fetchRes = await fetchTransactionsFromCloud();
+      if (!fetchRes.ok || !fetchRes.transactions) {
+        setCloudState({
+          status: fetchRes.configured ? 'error' : 'unconfigured',
+          error: fetchRes.error,
+        });
+        return;
+      }
+
+      const cloudTxs = fetchRes.transactions;
+
+      // Migrasi aman: jika cloud baru pertama kali aktif (lastUpdated === null & kosong),
+      // dorong riwayat lokal yang sudah ada di tablet agar tidak hilang.
+      if (cloudTxs.length === 0 && !fetchRes.lastUpdated && currentLocal.length > 0) {
+        const validLocal = currentLocal.filter((t) => !t.isVoided);
+        if (validLocal.length > 0) {
+          const migrateRes = await pushTransactionsToCloud(validLocal);
+          if (migrateRes.ok && migrateRes.transactions) {
+            for (const t of validLocal) {
+              try {
+                await updateTransactionSyncStatus(t.id, 'terkirim');
+              } catch {}
+            }
+            applyTransactionsState(
+              migrateRes.transactions.map((t) => ({ ...t, syncStatus: 'terkirim' as SyncStatus }))
+            );
+            setCloudState({
+              status: 'connected',
+              provider: migrateRes.provider,
+              lastSyncedAt: new Date().toISOString(),
+            });
+            return;
+          }
+        }
+      }
+
+      // Merge cloud dengan transaksi yang belum terkirim saja (jika owner reset cloud, data lama tidak bangkit kembali)
+      const txMap = new Map<string, SalesTransaction>();
+      cloudTxs.forEach((t) => {
+        if (t && t.id) txMap.set(t.id, { ...t, syncStatus: 'terkirim' });
+      });
+
+      currentLocal.forEach((t) => {
+        if (t && t.id && t.syncStatus !== 'terkirim' && !t.isVoided && !txMap.has(t.id)) {
+          txMap.set(t.id, t);
+        }
+      });
+
+      const merged = Array.from(txMap.values()).sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+
+      const isDifferent =
+        merged.length !== currentLocal.length ||
+        merged.some(
+          (m, i) =>
+            m.id !== currentLocal[i]?.id ||
+            m.syncStatus !== currentLocal[i]?.syncStatus ||
+            m.totalNet !== currentLocal[i]?.totalNet
+        );
+
+      if (isDifferent) {
+        applyTransactionsState(merged);
+      }
+
+      setCloudState({
+        status: 'connected',
+        provider: fetchRes.provider,
+        lastSyncedAt: new Date().toISOString(),
+      });
+    } catch (e: any) {
       console.warn('[CloudSync] Polling gagal:', e);
+      setCloudState({
+        status: 'error',
+        error: e?.message || 'Sinkronisasi cloud gagal.',
+      });
+    } finally {
+      isSyncingRef.current = false;
     }
   };
 
@@ -776,11 +931,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   ): Promise<SalesTransaction> => {
     const now = new Date();
     const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
-    const seq = (transactions.length + 1).toString().padStart(4, '0');
+    const seq = (transactionsRef.current.length + 1).toString().padStart(4, '0');
     const invoiceNumber = `INV-${dateStr}-${seq}`;
     const id = `tx-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
-
-    const syncStatus: SyncStatus = isOnline ? 'terkirim' : 'lokal';
 
     // Hitung real HPP per item dari resep dan biaya bahan baku
     let calculatedTotalHpp = 0;
@@ -803,7 +956,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       id,
       invoiceNumber,
       timestamp: now.toISOString(),
-      syncStatus,
+      syncStatus: 'lokal', // Awalnya 'lokal' sampai server Cloud benar-benar konfirmasi OK!
       isVoided: false,
       totalHpp: calculatedTotalHpp > 0 ? calculatedTotalHpp : (saleData.totalHpp || 0),
     };
@@ -842,141 +995,101 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       })
     );
 
-    // 2. Simpan Transaksi ke State & LocalStorage (Real-time Immutably)
-    let updatedList: SalesTransaction[] = [];
-    setTransactions((prev) => {
-      const filtered = prev.filter((t) => t.id !== newTx.id);
-      updatedList = [newTx, ...filtered];
-      try {
-        localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updatedList));
-      } catch {}
-      return updatedList;
-    });
+    // 2. Simpan Transaksi ke State & LocalStorage & IndexedDB secara aman (tanpa race condition React 18)
+    const nextList = [newTx, ...transactionsRef.current.filter((t) => t.id !== newTx.id)];
+    applyTransactionsState(nextList);
 
-    // Push ke Cloud agar tablet kasir dan HP/Laptop pemilik langsung sinkron
-    try {
-      await pushTransactionsToCloud(updatedList.length > 0 ? updatedList : [newTx]);
-    } catch (err) {
-      console.warn('[CloudSync] Push transaksi baru gagal:', err);
-    }
-
-    // 3. Simpan ke IndexedDB (Antrean Offline)
     try {
       await saveTransactionToIndexedDB(newTx);
-      const pending = await getPendingOfflineTransactions();
-      setPendingOfflineCount(pending.length);
     } catch (e) {
       console.warn('Gagal menyimpan ke IndexedDB:', e);
     }
 
+    // 3. Push seluruh transaksi yang belum terkirim ke Cloud Server Vercel
+    let finalSyncStatus: SyncStatus = 'lokal';
+    const unsyncedPayload = nextList.filter((t) => !t.isVoided && t.syncStatus !== 'terkirim');
+
+    if (navigator.onLine) {
+      const pushRes = await pushTransactionsToCloud(
+        unsyncedPayload.length > 0 ? unsyncedPayload : [newTx]
+      );
+
+      if (pushRes.ok) {
+        finalSyncStatus = 'terkirim';
+        for (const t of unsyncedPayload) {
+          try {
+            await updateTransactionSyncStatus(t.id, 'terkirim');
+          } catch {}
+        }
+
+        if (pushRes.transactions && Array.isArray(pushRes.transactions)) {
+          const mergedMap = new Map<string, SalesTransaction>();
+          pushRes.transactions.forEach((t) => {
+            if (t && t.id) mergedMap.set(t.id, { ...t, syncStatus: 'terkirim' });
+          });
+          applyTransactionsState(Array.from(mergedMap.values()));
+        } else {
+          const confirmedList = transactionsRef.current.map((t) =>
+            unsyncedPayload.some((u) => u.id === t.id)
+              ? { ...t, syncStatus: 'terkirim' as SyncStatus }
+              : t
+          );
+          applyTransactionsState(confirmedList);
+        }
+
+        setCloudState({
+          status: 'connected',
+          provider: pushRes.provider,
+          lastSyncedAt: new Date().toISOString(),
+        });
+      } else {
+        setCloudState({
+          status: pushRes.configured ? 'error' : 'unconfigured',
+          error: pushRes.error,
+        });
+      }
+    }
+
+    await refreshPendingCount();
+
+    const savedTx: SalesTransaction = { ...newTx, syncStatus: finalSyncStatus };
+
     // 4. Catat Audit Log
     addAuditLog(
       'TRANSAKSI_KASIR',
-      `Penjualan ${invoiceNumber} (${saleData.channel.toUpperCase()} - ${formatRupiah(saleData.totalNet)}) dicatat oleh ${saleData.cashierName}. Stok ${totalCupsSold} cup bahan berkurang otomatis. Status: ${syncStatus.toUpperCase()}.`
+      `Penjualan ${invoiceNumber} (${saleData.channel.toUpperCase()} - ${formatRupiah(saleData.totalNet)}) dicatat oleh ${saleData.cashierName}. Stok ${totalCupsSold} cup bahan berkurang otomatis. Status Cloud: ${finalSyncStatus.toUpperCase()}.`
     );
 
-    return newTx;
+    return savedTx;
   };
 
-  // Void Transaksi (Membatalkan Transaksi & Mengembalikan Stok Bahan Baku)
-  const voidTransaction = (transactionId: string, reason: string) => {
-    const target = transactions.find((t) => t.id === transactionId);
-    if (!target || target.isVoided) return;
-
-    // Kembalikan stok bahan baku
-    const returnStockMap: Record<string, number> = {};
-    let totalCupsReturned = 0;
-
-    for (const item of target.items) {
-      const prod = products.find((p) => p.id === item.productId);
-      if (prod) {
-        totalCupsReturned += item.quantity;
-        for (const recipeItem of prod.recipe) {
-          const qty = recipeItem.amount * item.quantity;
-          returnStockMap[recipeItem.ingredientId] =
-            (returnStockMap[recipeItem.ingredientId] || 0) + qty;
-        }
-      }
-    }
-
-    returnStockMap['ing-cup'] = (returnStockMap['ing-cup'] || 0) + totalCupsReturned;
-    returnStockMap['ing-lid-sealer'] = (returnStockMap['ing-lid-sealer'] || 0) + totalCupsReturned;
-
-    setIngredients((prev) =>
-      prev.map((ing) => {
-        const toReturn = returnStockMap[ing.id] || 0;
-        if (toReturn > 0) {
-          return {
-            ...ing,
-            currentStock: parseFloat((ing.currentStock + toReturn).toFixed(2)),
-          };
-        }
-        return ing;
-      })
-    );
-
-    const now = new Date().toISOString();
-    const actor = currentEmployee?.name || 'Kasir';
-
-    let updatedAfterVoid: SalesTransaction[] = [];
-    setTransactions((prev) => {
-      updatedAfterVoid = prev.map((tx) =>
-        tx.id === transactionId
-          ? {
-              ...tx,
-              isVoided: true,
-              voidReason: reason,
-              voidedAt: now,
-              voidedBy: actor,
-            }
-          : tx
-      );
-      try {
-        localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updatedAfterVoid));
-      } catch {}
-      return updatedAfterVoid;
-    });
-
-    // Sinkronisasi status void ke cloud
-    pushTransactionsToCloud(updatedAfterVoid).catch((err) =>
-      console.warn('[CloudSync] Gagal push void ke cloud:', err)
-    );
-
+  // Void Transaksi Dinonaktifkan (Kebijakan Anti-Korupsi INCHA)
+  const voidTransaction = (_transactionId: string, _reason: string) => {
     addAuditLog(
-      'VOID_TRANSAKSI',
-      `Transaksi ${target.invoiceNumber} dibatalkan (VOID) oleh ${actor}. Alasan: "${reason}". Stok ${totalCupsReturned} cup bahan dikembalikan.`
+      'VOID_DITOLAK',
+      'Percobaan pembatalan transaksi (Void) ditolak otomatis oleh sistem anti-korupsi.'
     );
+    setActiveAlert('Fitur Void Transaksi telah dinonaktifkan untuk mencegah kebocoran omzet kasir.');
   };
 
-  // Sinkronisasi antrean transaksi offline saat sinyal kembali
+  // Sinkronisasi antrean transaksi offline nyata ke Cloud Server Vercel
   const syncPendingTransactions = async (): Promise<number> => {
-    try {
-      const result = await syncOfflineQueue(async (tx) => {
-        // Simulasi pengiriman ke server/database Supabase
-        return true;
-      });
+    const beforePending = transactionsRef.current.filter(
+      (t) => !t.isVoided && t.syncStatus !== 'terkirim'
+    ).length;
 
-      // Update status transaksi di state jika terkirim
-      setTransactions((prev) =>
-        prev.map((tx) =>
-          tx.syncStatus === 'lokal' ? { ...tx, syncStatus: 'terkirim' } : tx
-        )
+    await syncCloudData();
+
+    const afterPending = await refreshPendingCount();
+    const syncedCount = Math.max(0, beforePending - afterPending);
+
+    if (syncedCount > 0) {
+      setActiveAlert(
+        `${syncedCount} transaksi berhasil disinkronkan ke Website Vercel.`
       );
-
-      const remainingPending = await getPendingOfflineTransactions();
-      setPendingOfflineCount(remainingPending.length);
-
-      if (result.synced > 0) {
-        setActiveAlert(
-          `Koneksi tersambung: ${result.synced} transaksi offline berhasil disinkronkan ke server tanpa data ganda.`
-        );
-      }
-
-      return result.synced;
-    } catch (err) {
-      console.error('Error saat sinkronisasi offline queue:', err);
-      return 0;
     }
+
+    return syncedCount;
   };
 
   const addExpense = (data: Omit<Expense, 'id' | 'createdAt'>) => {
@@ -1010,9 +1123,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const resetTransactions = async () => {
+    if (!authenticatedOwner) {
+      setActiveAlert('Hanya Pemilik terautentikasi yang dapat mereset data penjualan.');
+      return;
+    }
     localStorage.removeItem(STORAGE_KEYS.TRANSACTIONS);
-    setTransactions([]);
-    await resetCloudTransactions();
+    applyTransactionsState([]);
+    await resetCloudTransactions(authenticatedOwner.passwordHash || 'Jayden134?');
     // Kembalikan stok bahan fisik ke porsi semula
     setIngredients((prev) =>
       prev.map((ing) => {
@@ -1030,31 +1147,34 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Pulihkan transaksi dari berkas cadangan (Backup Restore)
   const restoreTransactionsBackup = async (importedTxs: SalesTransaction[]): Promise<number> => {
     let countAdded = 0;
-    let mergedList: SalesTransaction[] = [];
+    const map = new Map<string, SalesTransaction>();
+    transactionsRef.current.forEach((t) => map.set(t.id, t));
 
-    setTransactions((prev) => {
-      const map = new Map<string, SalesTransaction>();
-      prev.forEach((t) => map.set(t.id, t));
-
-      importedTxs.forEach((t) => {
-        if (!map.has(t.id)) {
-          countAdded++;
-        }
-        map.set(t.id, t);
-      });
-
-      mergedList = Array.from(map.values()).sort(
-        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-      );
-
-      try {
-        localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(mergedList));
-      } catch {}
-      return mergedList;
+    importedTxs.forEach((t) => {
+      if (!map.has(t.id)) {
+        countAdded++;
+      }
+      map.set(t.id, { ...t, syncStatus: 'lokal' });
     });
 
+    const mergedList = Array.from(map.values()).sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+
+    applyTransactionsState(mergedList);
+
     if (mergedList.length > 0) {
-      await pushTransactionsToCloud(mergedList);
+      const pushRes = await pushTransactionsToCloud(mergedList);
+      if (pushRes.ok) {
+        applyTransactionsState(
+          mergedList.map((t) => ({ ...t, syncStatus: 'terkirim' as SyncStatus }))
+        );
+        setCloudState({
+          status: 'connected',
+          provider: pushRes.provider,
+          lastSyncedAt: new Date().toISOString(),
+        });
+      }
     }
 
     addAuditLog(
@@ -1075,7 +1195,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }): Promise<SalesTransaction> => {
     const targetDate = data.date ? new Date(data.date) : new Date();
     const dateStr = targetDate.toISOString().slice(0, 10).replace(/-/g, '');
-    const seq = (transactions.length + 1).toString().padStart(4, '0');
+    const seq = (transactionsRef.current.length + 1).toString().padStart(4, '0');
     const invoiceNumber = `INV-${dateStr}-${seq}-M`;
     const id = `tx-man-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
 
@@ -1104,22 +1224,26 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       totalHpp: Math.round(data.totalAmount * 0.42),
       cashReceived: data.totalAmount,
       cashChange: 0,
-      syncStatus: 'terkirim',
+      syncStatus: 'lokal',
       isVoided: false,
     };
 
-    let updatedList: SalesTransaction[] = [];
-    setTransactions((prev) => {
-      updatedList = [newTx, ...prev];
-      try {
-        localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(updatedList));
-      } catch {}
-      return updatedList;
-    });
+    const nextList = [newTx, ...transactionsRef.current];
+    applyTransactionsState(nextList);
 
-    try {
-      await pushTransactionsToCloud(updatedList);
-    } catch {}
+    const pushRes = await pushTransactionsToCloud([newTx]);
+    if (pushRes.ok) {
+      applyTransactionsState(
+        nextList.map((t) =>
+          t.id === newTx.id ? { ...t, syncStatus: 'terkirim' as SyncStatus } : t
+        )
+      );
+      setCloudState({
+        status: 'connected',
+        provider: pushRes.provider,
+        lastSyncedAt: new Date().toISOString(),
+      });
+    }
 
     addAuditLog(
       'INPUT_MANUAL_OMZET',
@@ -1146,7 +1270,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setPackaging(INITIAL_PACKAGING);
     setBusinessParams(INITIAL_BUSINESS_PARAMS);
     setEmployees(INITIAL_EMPLOYEES);
-    setTransactions([]);
+    applyTransactionsState([]);
     setExpenses([]);
     setPriceHistory([]);
     setAuditLogs([
@@ -1183,6 +1307,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         activeAlert,
         isOnline,
         pendingOfflineCount,
+        cloudState,
         clearAlert,
         authenticatedOwner,
         isCashierAuthenticated,

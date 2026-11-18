@@ -243,15 +243,20 @@ public class BluetoothPrinterPlugin extends Plugin {
         // 2. Percobaan tulis pertama ke stream
         boolean success = writeToStream(slot, bytes);
 
-        // 3. Jika gagal (misal Broken pipe karena printer sempat idle/sleep) -> Reconnect otomatis dan coba lagi
+        // 3. Jika gagal (misal Broken pipe karena printer sempat idle/sleep) -> Reconnect otomatis (hingga 2x percobaan)
         if (!success) {
-            Log.w(TAG, "Pengiriman data ke " + target + " gagal (Broken pipe/socket reset). Mencoba reconnect otomatis...");
-            slot.disconnect();
-            try { Thread.sleep(250); } catch (Exception ignored) {}
-            ensureConnected(slot);
+            int[] delaysMs = { 600, 900 };
+            for (int delay : delaysMs) {
+                Log.w(TAG, "Pengiriman data ke " + target + " gagal (Broken pipe/socket reset). Reconnect dalam " + delay + "ms...");
+                slot.disconnect();
+                try { Thread.sleep(delay); } catch (Exception ignored) {}
+                ensureConnected(slot);
 
-            if (slot.isConnected()) {
-                success = writeToStream(slot, bytes);
+                if (slot.isConnected()) {
+                    try { Thread.sleep(100); } catch (Exception ignored) {}
+                    success = writeToStream(slot, bytes);
+                    if (success) break;
+                }
             }
         }
 
